@@ -24,7 +24,7 @@ export default async function LoginPage({
       await signIn("credentials", {
         email: formData.get("email"),
         password: formData.get("password"),
-        redirect: false,
+        redirectTo: "/login",
       });
     } catch (err) {
       if (err instanceof AuthError) {
@@ -32,8 +32,6 @@ export default async function LoginPage({
       }
       throw err;
     }
-    // Middleware redireciona /login -> /dashboard ou /broker/dashboard conforme o role.
-    redirect("/login");
   }
 
   return (
