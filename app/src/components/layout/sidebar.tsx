@@ -1,8 +1,8 @@
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { SignOutButton } from "@/components/layout/sign-out-button";
 
-export type SidebarItem = { href: string; label: string; icon: LucideIcon };
+export type SidebarItem = { href: string; label: string; icon: ReactNode };
 
 export function Sidebar({
   items,
@@ -29,7 +29,7 @@ export function Sidebar({
             href={item.href}
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-foreground"
           >
-            <item.icon size={18} />
+            {item.icon}
             {item.label}
           </Link>
         ))}

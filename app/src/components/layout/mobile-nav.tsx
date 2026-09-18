@@ -41,7 +41,7 @@ export function MobileNav({ items, orgName }: { items: SidebarItem[]; orgName: s
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-text-secondary hover:bg-surface-2 hover:text-foreground"
                 >
-                  <item.icon size={18} />
+                  {item.icon}
                   {item.label}
                 </Link>
               ))}

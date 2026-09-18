@@ -5,15 +5,17 @@ import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 
+const ICON_SIZE = 18;
+
 const ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/leads", label: "Leads", icon: ListChecks },
-  { href: "/live", label: "Ao Vivo", icon: Radio },
-  { href: "/settings/rotation", label: "Roleta", icon: RefreshCw },
-  { href: "/settings/brokers", label: "Corretores", icon: Users2 },
-  { href: "/reports", label: "Relatórios", icon: BarChart3 },
-  { href: "/settings/integrations/meta", label: "Integrações", icon: Plug },
-  { href: "/settings", label: "Configurações", icon: Settings },
+  { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={ICON_SIZE} /> },
+  { href: "/leads", label: "Leads", icon: <ListChecks size={ICON_SIZE} /> },
+  { href: "/live", label: "Ao Vivo", icon: <Radio size={ICON_SIZE} /> },
+  { href: "/settings/rotation", label: "Roleta", icon: <RefreshCw size={ICON_SIZE} /> },
+  { href: "/settings/brokers", label: "Corretores", icon: <Users2 size={ICON_SIZE} /> },
+  { href: "/reports", label: "Relatórios", icon: <BarChart3 size={ICON_SIZE} /> },
+  { href: "/settings/integrations/meta", label: "Integrações", icon: <Plug size={ICON_SIZE} /> },
+  { href: "/settings", label: "Configurações", icon: <Settings size={ICON_SIZE} /> },
 ];
 
 export default async function OwnerLayout({ children }: { children: React.ReactNode }) {

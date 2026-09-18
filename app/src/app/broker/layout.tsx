@@ -5,10 +5,12 @@ import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 
+const ICON_SIZE = 18;
+
 const ITEMS = [
-  { href: "/broker/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/broker/history", label: "Histórico", icon: History },
-  { href: "/broker/profile", label: "Meu Perfil", icon: User },
+  { href: "/broker/dashboard", label: "Dashboard", icon: <LayoutDashboard size={ICON_SIZE} /> },
+  { href: "/broker/history", label: "Histórico", icon: <History size={ICON_SIZE} /> },
+  { href: "/broker/profile", label: "Meu Perfil", icon: <User size={ICON_SIZE} /> },
 ];
 
 export default async function BrokerLayout({ children }: { children: React.ReactNode }) {
