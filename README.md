@@ -69,7 +69,7 @@ npm run db:migrate   # cria as tabelas (prisma migrate dev)
 npm run db:seed       # popula um ambiente de demonstração (ver contas abaixo)
 ```
 
-O seed é isolado (`slug: imobiliaria-demo`) e nunca deve ser usado em produção — ver seção
+O seed é isolado (`slug: prospera`) e nunca deve ser usado em produção — ver seção
 "Seed vs. produção".
 
 ### 4. Rodar
@@ -82,15 +82,27 @@ npm run worker    # em outro terminal — processa expirações a cada 15s
 Sem o worker rodando, leads continuam sendo criados e atribuídos normalmente, mas nunca
 expiram/transferem sozinhos — para produção ele **precisa** estar sempre ativo (ver "Deploy").
 
-### Contas de demonstração (seed)
+### Contas (seed)
+
+As senhas dos corretores são geradas aleatoriamente pelo seed e impressas no terminal a cada
+execução (`npm run db:seed`) — anote a saída do comando. Valores atuais:
 
 | Papel | Email | Senha |
 |---|---|---|
-| Dono (OWNER) | dono@imobiliariademo.com.br | demo1234 |
-| Corretor | joao@imobiliariademo.com.br | demo1234 |
-| Corretor | maria@imobiliariademo.com.br | demo1234 |
-| Corretor | pedro@imobiliariademo.com.br | demo1234 |
-| Corretor (pausado) | lucas@imobiliariademo.com.br | demo1234 |
+| Dono (OWNER) | adm@prospera.com | metodoneosprospera2026 |
+| Corretor #1 | eduardo@prospera.com | bCGPtopWA5 |
+| Corretor #2 | gisele@prospera.com | 9g3czG86Uj |
+| Corretor #3 | joao@prospera.com | ovdPD4kr6t |
+| Corretor #4 | maurilo@prospera.com | vwREywYudJ |
+| Corretor #5 | mara@prospera.com | btPuDeazXB |
+| Corretor #6 | tassi@prospera.com | LyHX53sLpj |
+
+**Importante:** essas senhas estão em texto puro em `packages/db/seed.ts` e agora no histórico do
+git — são credenciais reais de uso, não só dados de demonstração. Troque-as após o primeiro
+login (ainda não há tela de "alterar senha" — pode ser feito gerando um novo hash com bcrypt e
+atualizando `password_hash` diretamente, ou recriando o usuário) antes de expor este ambiente
+publicamente, e evite dar push deste repositório para um remoto público sem antes trocar a
+senha do OWNER.
 
 ## Testes
 
@@ -204,7 +216,7 @@ mesmos pontos onde hoje gravamos `audit_logs` (assign/claim/expire).
 
 ## Seed vs. produção
 
-`packages/db/seed.ts` cria a organização `imobiliaria-demo` com dados fictícios — nunca é
+`packages/db/seed.ts` cria a organização `prospera` com dados fictícios — nunca é
 chamado pelo fluxo principal (webhook, API de criação de corretor, etc.) e é seguro rodar em
 desenvolvimento repetidamente (idempotente). Não rode `npm run db:seed` contra um banco de
 produção com dados reais.
