@@ -1,0 +1,221 @@
+# CRM Prospera
+
+CRM multi-tenant para imobiliárias com distribuição automática de leads do Meta Lead Ads:
+webhook → roleta round-robin entre corretores → temporizador real controlado pelo servidor →
+transferência automática se ninguém responder a tempo → dashboards em tempo (quase) real para
+dono e corretores.
+
+Identidade visual: preto (`#191919`) + dourado (`#F6C324`) + off-white (`#FFFFF0`).
+
+## Stack e por que ela é assim
+
+| Camada | Escolha | Observação |
+|---|---|---|
+| Frontend/backend | Next.js 16 (App Router) + TypeScript + Tailwind v4 | API Routes fazem a autoridade de negócio; nada crítico roda só no cliente |
+| Banco | PostgreSQL no **Railway** | Não é Supabase — decisão do usuário. Prisma com migrations reais |
+| Auth | Auth.js v5 (Credentials + JWT) + bcrypt | Sem Supabase Auth disponível |
+| Multi-tenant | `src/lib/tenant-db.ts` — extensão do Prisma Client que injeta `organization_id` (vindo da sessão) em toda query | Substitui o RLS nativo do Supabase; nunca confia só no frontend |
+| Realtime | Polling curto (2–3s) via SWR | Sem Supabase Realtime; simples, confiável, sem infra extra. Ver "Evoluindo o realtime" abaixo |
+| Job de expiração | Processo Node separado em `worker/`, rodando a cada 15s | Plano Hobby da Vercel só permite cron 1x/dia — insuficiente para expirar leads em minutos. O worker roda no Railway (junto do banco), sempre ativo |
+| Deploy | App → Vercel · Banco + worker → Railway | |
+
+Toda a lógica crítica (quem recebe o lead, quando expira, quem pode assumir) vive em
+`packages/db/src/rotation.ts`, compartilhada entre o app Next.js e o worker — é a única fonte
+de verdade, com transações e `SELECT ... FOR UPDATE` para nunca permitir duas pessoas
+assumirem o mesmo lead (ver "Concorrência" abaixo).
+
+## Estrutura do monorepo
+
+```
+app/            Next.js — UI, API routes, auth, middleware
+worker/         Processo Node que expira atribuições vencidas (roda continuamente)
+packages/db/    Schema Prisma, migrations, seed, motor de rotação (fonte única de verdade)
+```
+
+## Instalação
+
+Pré-requisitos: Node 20+, um banco Postgres acessível publicamente (ex.: Railway).
+
+```bash
+npm install
+```
+
+### 1. Banco (Railway)
+
+1. Crie um projeto no [railway.app](https://railway.app) e adicione um serviço **PostgreSQL**
+   (`+ New` → `Database` → `Add PostgreSQL`).
+2. No serviço Postgres, aba **Settings → Networking**, clique em **Add Public Access** para
+   gerar a variável `DATABASE_PUBLIC_URL` (host termina em `*.proxy.rlwy.net`). É essa URL
+   pública que você vai usar — a `DATABASE_URL` interna (`*.railway.internal`) só funciona
+   entre serviços dentro do próprio projeto Railway.
+3. Copie o valor resolvido (não a fórmula com `${{...}}`) da aba **Variables**.
+
+### 2. Variáveis de ambiente
+
+```bash
+cp packages/db/.env.example packages/db/.env
+cp worker/.env.example worker/.env
+cp app/.env.example app/.env.local
+```
+
+Preencha `DATABASE_URL` nos três com a mesma connection string pública do Railway. Gere os
+segredos indicados nos comentários do `app/.env.example` (`AUTH_SECRET`,
+`META_TOKEN_ENCRYPTION_KEY`, `META_VERIFY_TOKEN`, `CRON_SECRET`).
+
+### 3. Migrations + seed
+
+```bash
+npm run db:migrate   # cria as tabelas (prisma migrate dev)
+npm run db:seed       # popula um ambiente de demonstração (ver contas abaixo)
+```
+
+O seed é isolado (`slug: imobiliaria-demo`) e nunca deve ser usado em produção — ver seção
+"Seed vs. produção".
+
+### 4. Rodar
+
+```bash
+npm run dev      # Next.js em http://localhost:3000
+npm run worker    # em outro terminal — processa expirações a cada 15s
+```
+
+Sem o worker rodando, leads continuam sendo criados e atribuídos normalmente, mas nunca
+expiram/transferem sozinhos — para produção ele **precisa** estar sempre ativo (ver "Deploy").
+
+### Contas de demonstração (seed)
+
+| Papel | Email | Senha |
+|---|---|---|
+| Dono (OWNER) | dono@imobiliariademo.com.br | demo1234 |
+| Corretor | joao@imobiliariademo.com.br | demo1234 |
+| Corretor | maria@imobiliariademo.com.br | demo1234 |
+| Corretor | pedro@imobiliariademo.com.br | demo1234 |
+| Corretor (pausado) | lucas@imobiliariademo.com.br | demo1234 |
+
+## Testes
+
+```bash
+npm test --workspace app
+```
+
+Roda contra o **Postgres real** configurado em `app/.env.local` (cada teste cria sua própria
+organização isolada e limpa tudo ao final — não usa o mesmo banco de dev de forma destrutiva,
+mas evite rodar contra produção). Cobre os cenários críticos do escopo original: atribuição ao
+primeiro corretor, timer gravado pelo servidor, claim dentro do prazo interrompe a rotação,
+expiração transfere para o próximo, corretor pausado é pulado, ciclo completo volta ao
+primeiro corretor, dois cliques simultâneos só um vence, corretor errado nunca assume,
+idempotência do `meta_lead_id`, isolação cross-tenant, organização sem corretor ativo, e o
+webhook do Meta de ponta a ponta (assinatura, verificação, criação, idempotência) com a Graph
+API mockada no formato oficial documentado.
+
+## Concorrência: como garantimos que só uma pessoa assume o lead
+
+Todo o ciclo de vida de uma atribuição (`lead_assignments`) passa por transações Postgres com
+`SELECT ... FOR UPDATE` na linha ativa antes de qualquer leitura/decisão:
+
+- **Claim** (`claimLead` em `packages/db/src/rotation.ts`): trava a tentativa `ASSIGNED` atual,
+  revalida corretor + prazo, só então marca `CONTACTED`.
+- **Expiração** (`expireAndRotate`, chamado pelo worker a cada 15s): trava a mesma linha,
+  revalida `status = ASSIGNED AND expires_at <= now()` antes de expirar — se um claim já
+  resolveu a tentativa, não faz nada.
+- **Distribuição** (`assignNextLead`/`distributeNewLead`): trava a linha de `rotation_state` da
+  organização antes de ler/avançar a posição da fila, serializando leads concorrentes.
+
+O timer nunca é decidido pelo navegador: `expires_at` é gravado pelo servidor no momento da
+atribuição, e o frontend só calcula `expires_at - hora_do_servidor` (recebida a cada
+resposta da API) para exibir a contagem regressiva.
+
+## Configuração do Meta for Developers
+
+Pesquisado na documentação oficial atual (`developers.facebook.com`) antes de implementar —
+não foi assumido nada de versões antigas da API.
+
+1. **Criar o app**: [developers.facebook.com/apps](https://developers.facebook.com/apps) →
+   "Criar app" → tipo "Empresa".
+2. **Adicionar o produto Webhooks**: no painel do app, adicione o produto **Webhooks**.
+3. **Configurar a URL de callback**: em Webhooks → objeto **Página**, informe:
+   - Callback URL: `https://SEU_DOMINIO/api/webhooks/meta`
+   - Verify Token: o mesmo valor de `META_VERIFY_TOKEN` no seu `.env`
+   - Campo a assinar: **`leadgen`**
+   - Habilite **"Include Values"** no dashboard (senão a Meta manda só o nome dos campos
+     alterados, sem os valores).
+4. **Permissões necessárias** (App Review, modo desenvolvimento dispensa review para testar com
+   contas de teste): `leads_retrieval`, `pages_manage_metadata`, `pages_show_list`,
+   `pages_read_engagement`, `ads_management` (e `pages_manage_ads` se for usar a leitura
+   completa de campanha via Graph API).
+5. **Obter um token de página de longa duração** com permissão de ADVERTISE na página — ver
+   [guia oficial de long-lived tokens](https://developers.facebook.com/documentation/facebook-login/guides/access-tokens/get-long-lived).
+6. **Conectar no CRM**: em `/settings/integrations/meta`, informe o **Page ID** e o **token de
+   acesso da página**. O CRM automaticamente:
+   - testa o token (`GET /{page-id}`),
+   - inscreve a página no seu webhook (`POST /{page-id}/subscribed_apps?subscribed_fields=leadgen`),
+   - salva o token **criptografado** (AES-256-GCM) no banco.
+7. **Testar**: gere um lead de teste no seu formulário (Meta oferece um modo de teste no
+   Gerenciador de Anúncios) e confirme em `/leads` que ele chegou e foi distribuído.
+
+### Formato dos dados (confirmado na doc atual, Graph API v25.0)
+
+- Webhook POST: `{ object: "page", entry: [{ id: <page_id>, changes: [{ field: "leadgen", value: { leadgen_id, page_id, form_id, adgroup_id, ad_id, created_time } }] }] }`.
+  **`campaign_id` não vem no webhook nem no lead** — o CRM busca via `ad_id` (`GET
+  /{ad_id}?fields=name,campaign{id,name},adset{id,name}`), de forma best-effort (se falhar, o
+  lead é salvo mesmo assim, só sem esses nomes).
+- Assinatura: header `X-Hub-Signature-256: sha256=<hmac>` (HMAC-SHA256 do corpo bruto com o App
+  Secret) — validado em toda requisição antes de processar.
+- Dados completos do lead: `GET /{leadgen_id}?fields=id,created_time,ad_id,form_id,field_data` —
+  `field_data` é um array de `{ name, values: [...] }` (uma pergunta do formulário por item).
+- Idempotência: `meta_lead_id` é `UNIQUE` no banco — reenvios do mesmo evento (a Meta reenvia em
+  caso de falha de ack por até 36h) nunca duplicam o lead; o CRM registra um evento
+  `WEBHOOK_DUPLICATE` e não redistribui.
+
+## Segurança e RBAC
+
+- Roles: `OWNER`, `ADMIN`, `BROKER`. Middleware (`src/middleware.ts`) redireciona por role;
+  toda rota de API revalida com `requireSession([...roles])`.
+- Isolamento multi-tenant reforçado em duas camadas: (1) toda query de dados tenant-scoped passa
+  por `scopedDb(organizationId)`, que injeta o filtro a partir da sessão; (2) o motor de
+  rotação/claim/expiração (código de sistema, não uma requisição de usuário) sempre recebe
+  `organizationId` explícito e o valida em toda escrita.
+- Tokens da Meta nunca ficam em texto puro: criptografados com AES-256-GCM
+  (`META_TOKEN_ENCRYPTION_KEY`) antes de salvar; nunca expostos ao frontend.
+- Senhas com bcrypt; sessão JWT assinada (`AUTH_SECRET`).
+- `/api/cron/expire-assignments` (fallback de teste do worker) exige
+  `Authorization: Bearer $CRON_SECRET`.
+
+## Deploy
+
+**App (Vercel)**: importe o repositório, defina o *root directory* como `app`, configure as
+mesmas variáveis de `app/.env.example` no painel da Vercel (`DATABASE_URL` apontando para o
+Postgres do Railway). Depois do deploy, atualize a URL do webhook no App Dashboard da Meta para
+o domínio de produção.
+
+**Worker (Railway)**: crie um novo serviço no mesmo projeto Railway a partir deste repositório,
+*root directory* `worker`, comando de start `npm run start --workspace worker` (ou
+`node --import tsx src/index.ts`), com `DATABASE_URL` apontando para o mesmo Postgres. Esse
+processo precisa ficar **sempre ativo** — é ele quem expira e transfere leads sem depender do
+navegador de ninguém estar aberto (seção "o sistema continua funcionando mesmo com o navegador
+fechado").
+
+## Evoluindo o realtime
+
+O polling (2–3s) atende ao requisito de "sem refresh manual", mas para push instantâneo no
+futuro: um serviço WebSocket dedicado no Railway (mesma vantagem de long-running process que o
+worker já usa) ou um provedor gerenciado como Pusher/Ably, publicando eventos a partir dos
+mesmos pontos onde hoje gravamos `audit_logs` (assign/claim/expire).
+
+## Seed vs. produção
+
+`packages/db/seed.ts` cria a organização `imobiliaria-demo` com dados fictícios — nunca é
+chamado pelo fluxo principal (webhook, API de criação de corretor, etc.) e é seguro rodar em
+desenvolvimento repetidamente (idempotente). Não rode `npm run db:seed` contra um banco de
+produção com dados reais.
+
+## O que fica como próximo passo
+
+- OAuth completo (Facebook Login for Business) para conectar a página sem colar o token
+  manualmente — hoje o dono cola um token de página já gerado (documentado acima), o que é
+  suficiente e funcional, mas um fluxo "Conectar com Facebook" com seleção de página é uma
+  evolução natural.
+- Notificações por WhatsApp/email (a estrutura de `audit_logs` já registra todos os eventos
+  necessários para disparar isso depois).
+- Múltiplas equipes por organização — o schema já isola tudo por `organization_id` de um jeito
+  que comporta uma tabela `teams` no meio sem quebrar nada, mas isso não foi implementado.

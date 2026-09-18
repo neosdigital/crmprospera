@@ -1,0 +1,30 @@
+{
+  "name": "crm-prospera",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "app",
+    "worker",
+    "packages/db"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace app",
+    "build": "npm run build --workspace app",
+    "worker": "npm run start --workspace worker",
+    "db:generate": "npm run generate --workspace @crm/db",
+    "db:migrate": "npm run migrate:dev --workspace @crm/db",
+    "db:seed": "npm run seed --workspace @crm/db",
+    "test": "npm run test --workspace app"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.12.2": true,
+    "esbuild@0.21.5": true
+  }
+}
