@@ -9,6 +9,11 @@ export async function GET() {
 
     const db = scopedDb(session.user.organizationId);
 
+    const broker = await db.broker.findUnique({
+      where: { id: session.user.brokerId },
+      select: { soundEnabled: true },
+    });
+
     const activeAssignments = await db.leadAssignment.findMany({
       where: { brokerId: session.user.brokerId, status: "ASSIGNED" },
       orderBy: { assignedAt: "asc" },
@@ -22,7 +27,12 @@ export async function GET() {
       include: { lead: { select: { id: true, name: true, phone: true, status: true } } },
     });
 
-    return NextResponse.json({ activeAssignments, recentHistory, serverNow: new Date().toISOString() });
+    return NextResponse.json({
+      activeAssignments,
+      recentHistory,
+      soundEnabled: broker?.soundEnabled ?? true,
+      serverNow: new Date().toISOString(),
+    });
   } catch (error) {
     return jsonError(error);
   }

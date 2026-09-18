@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { SignOutButton } from "@/components/layout/sign-out-button";
 
@@ -15,11 +16,15 @@ export function Sidebar({
 }) {
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-[color:var(--color-border-gold)] bg-sidebar px-4 py-6 md:flex">
-      <div className="mb-8 flex items-center gap-2 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold text-sm font-bold text-[#191919]">
-          CP
-        </div>
-        <span className="text-sm font-semibold text-foreground">CRM Prospera</span>
+      <div className="mb-8 px-2">
+        <Image
+          src="/logo-prospera.png"
+          alt="Próspera"
+          width={2170}
+          height={725}
+          priority
+          className="h-auto w-full max-w-[168px]"
+        />
       </div>
 
       <nav className="flex-1 space-y-1">

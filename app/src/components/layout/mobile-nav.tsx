@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Menu, X } from "lucide-react";
 import type { SidebarItem } from "@/components/layout/sidebar";
 
@@ -10,15 +11,10 @@ export function MobileNav({ items, orgName }: { items: SidebarItem[]; orgName: s
 
   return (
     <div className="flex items-center justify-between border-b border-[color:var(--color-border-gold)] bg-sidebar px-4 py-3 md:hidden">
-      <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold text-xs font-bold text-[#191919]">
-          CP
-        </div>
-        <span className="text-sm font-medium text-foreground">{orgName}</span>
-      </div>
+      <Image src="/logo-prospera.png" alt="Próspera" width={2170} height={725} priority className="h-7 w-auto" />
       <button
         onClick={() => setOpen(true)}
-        className="rounded-lg p-2 text-foreground hover:bg-surface-2"
+        className="rounded-lg p-2.5 text-foreground hover:bg-surface-2"
         aria-label="Abrir menu"
       >
         <Menu size={22} />
@@ -28,7 +24,8 @@ export function MobileNav({ items, orgName }: { items: SidebarItem[]; orgName: s
         <div className="fixed inset-0 z-50 flex">
           <div className="w-72 max-w-[80vw] bg-sidebar px-4 py-6">
             <div className="mb-6 flex items-center justify-between">
-              <span className="text-sm font-semibold text-foreground">Menu</span>
+              <Image src="/logo-prospera.png" alt="Próspera" width={2170} height={725} className="h-6 w-auto" />
+              <span className="sr-only">{orgName}</span>
               <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-2" aria-label="Fechar menu">
                 <X size={20} />
               </button>

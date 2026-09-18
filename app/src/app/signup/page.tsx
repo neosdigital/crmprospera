@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { poster, FetchError } from "@/lib/fetcher";
@@ -36,9 +37,14 @@ export default function SignupPage() {
     <div className="flex min-h-screen w-full items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gold text-lg font-bold text-[#191919]">
-            CP
-          </div>
+          <Image
+            src="/logo-prospera.png"
+            alt="Próspera"
+            width={2170}
+            height={725}
+            priority
+            className="mx-auto mb-4 h-auto w-full max-w-[220px]"
+          />
           <h1 className="text-xl font-semibold text-foreground">Criar sua imobiliária</h1>
           <p className="mt-1 text-sm text-text-secondary">Comece a distribuir leads automaticamente</p>
         </div>

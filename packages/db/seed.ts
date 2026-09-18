@@ -3,11 +3,18 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+const ORG_SLUG = "prospera";
+
+const OWNER = { name: "Administrador", email: "adm@prospera.com", password: "metodoneosprospera2026" };
+
+// Senhas geradas aleatoriamente para o seed — trocar depois do primeiro login em produção.
 const BROKERS = [
-  { name: "João Silva", email: "joao@imobiliariademo.com.br" },
-  { name: "Maria Santos", email: "maria@imobiliariademo.com.br" },
-  { name: "Pedro Costa", email: "pedro@imobiliariademo.com.br" },
-  { name: "Lucas Almeida", email: "lucas@imobiliariademo.com.br" },
+  { name: "Eduardo", email: "eduardo@prospera.com", password: "bCGPtopWA5" },
+  { name: "Gisele", email: "gisele@prospera.com", password: "9g3czG86Uj" },
+  { name: "João", email: "joao@prospera.com", password: "ovdPD4kr6t" },
+  { name: "Maurilo", email: "maurilo@prospera.com", password: "vwREywYudJ" },
+  { name: "Mara Z", email: "mara@prospera.com", password: "btPuDeazXB" },
+  { name: "Tassi", email: "tassi@prospera.com", password: "LyHX53sLpj" },
 ];
 
 const CAMPAIGNS = [
@@ -26,46 +33,44 @@ function randomPhone() {
 }
 
 async function main() {
-  console.log("Seeding: Imobiliária Demo (ambiente de desenvolvimento)");
+  console.log("Seeding: Próspera (ambiente de desenvolvimento)");
 
-  const passwordHash = await bcrypt.hash("demo1234", 10);
+  // Reexecução idempotente: remove por completo a organização de seed anterior (cascata)
+  // antes de recriar, para não deixar contas antigas órfãs quando os emails mudam.
+  const previous = await prisma.organization.findUnique({ where: { slug: ORG_SLUG } });
+  if (previous) {
+    await prisma.organization.delete({ where: { id: previous.id } });
+  }
 
-  const org = await prisma.organization.upsert({
-    where: { slug: "imobiliaria-demo" },
-    update: {},
-    create: {
-      name: "Imobiliária Demo",
-      slug: "imobiliaria-demo",
+  const org = await prisma.organization.create({
+    data: {
+      name: "Próspera Relacionamentos & Imóveis",
+      slug: ORG_SLUG,
       responseTimeoutMinutes: 5,
     },
   });
 
-  await prisma.rotationState.upsert({
-    where: { organizationId: org.id },
-    update: { currentPosition: 1 },
-    create: { organizationId: org.id, currentPosition: 1 },
-  });
+  await prisma.rotationState.create({ data: { organizationId: org.id, currentPosition: 1 } });
 
-  const owner = await prisma.user.upsert({
-    where: { email: "dono@imobiliariademo.com.br" },
-    update: {},
-    create: {
+  const ownerPasswordHash = await bcrypt.hash(OWNER.password, 10);
+  const owner = await prisma.user.create({
+    data: {
       organizationId: org.id,
-      name: "Ricardo Dono",
-      email: "dono@imobiliariademo.com.br",
-      passwordHash,
+      name: OWNER.name,
+      email: OWNER.email,
+      passwordHash: ownerPasswordHash,
       role: Role.OWNER,
     },
   });
-  console.log(`OWNER: ${owner.email} / senha: demo1234`);
+  console.log(`OWNER: ${owner.email} / senha: ${OWNER.password}`);
 
   const brokers = [];
   for (let i = 0; i < BROKERS.length; i++) {
     const b = BROKERS[i];
-    const user = await prisma.user.upsert({
-      where: { email: b.email },
-      update: {},
-      create: {
+    const passwordHash = await bcrypt.hash(b.password, 10);
+
+    const user = await prisma.user.create({
+      data: {
         organizationId: org.id,
         name: b.name,
         email: b.email,
@@ -74,31 +79,19 @@ async function main() {
       },
     });
 
-    const broker = await prisma.broker.upsert({
-      where: { userId: user.id },
-      update: {},
-      create: {
+    const broker = await prisma.broker.create({
+      data: {
         organizationId: org.id,
         userId: user.id,
-        displayName: b.name.split(" ")[0],
+        displayName: b.name,
         phone: `+${randomPhone()}`,
         rotationPosition: i + 1,
-        isInRotation: i < 3, // Lucas (index 3) fica pausado por padrão no seed
+        isInRotation: true,
       },
     });
     brokers.push(broker);
-    console.log(`BROKER: ${user.email} / senha: demo1234`);
+    console.log(`BROKER #${i + 1}: ${user.email} / senha: ${b.password}`);
   }
-
-  await prisma.broker.update({
-    where: { id: brokers[3].id },
-    data: { status: "PAUSED", pausedReason: "Férias" },
-  });
-
-  // Limpa leads de seed anteriores para reexecução idempotente
-  await prisma.auditLog.deleteMany({ where: { organizationId: org.id } });
-  await prisma.leadAssignment.deleteMany({ where: { organizationId: org.id } });
-  await prisma.lead.deleteMany({ where: { organizationId: org.id } });
 
   const now = Date.now();
   for (let i = 0; i < LEAD_NAMES.length; i++) {
@@ -142,7 +135,7 @@ async function main() {
     // Simula distribuição simples só para os primeiros leads, deixando os últimos "NEW" sem assignment
     // para exercitar o motor de rotação real quando o usuário testar manualmente.
     if (i < 6) {
-      const broker = brokers[i % 3];
+      const broker = brokers[i % brokers.length];
       const assignedAt = createdAt;
       const expiresAt = new Date(assignedAt.getTime() + org.responseTimeoutMinutes * 60 * 1000);
       const contacted = i % 2 === 0;

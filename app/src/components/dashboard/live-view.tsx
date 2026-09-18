@@ -5,6 +5,8 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
+import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
 
 type LiveLead = {
   id: string;
@@ -73,8 +75,20 @@ export function LiveView() {
     syncOffset();
   }, [data?.serverNow]);
 
+  const activeLeads = data?.activeLeads ?? [];
+  useNewItemAlert(
+    activeLeads.map((l) => l.id),
+    {
+      notify: (newIds) => {
+        const first = activeLeads.find((l) => newIds.includes(l.id));
+        if (first) showLeadNotification("Novo lead recebido", `${first.name} entrou na roleta de atendimento.`);
+      },
+    }
+  );
+
   return (
     <div className="px-4 py-8 sm:px-8">
+      <NotificationPermissionBanner />
       <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>
       <p className="mt-1 text-text-secondary">Acompanhe em tempo real onde cada lead está agora.</p>
 

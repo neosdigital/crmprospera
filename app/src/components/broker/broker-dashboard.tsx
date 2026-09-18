@@ -6,6 +6,8 @@ import { Phone, MessageCircle, Clock } from "lucide-react";
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
+import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
 
 type LeadAssignment = {
   id: string;
@@ -29,6 +31,7 @@ type LeadAssignment = {
 type MyLeadsResponse = {
   activeAssignments: LeadAssignment[];
   recentHistory: { id: string; status: string; lead: { name: string; phone: string | null; status: string } }[];
+  soundEnabled: boolean;
   serverNow: string;
 };
 
@@ -171,8 +174,20 @@ export function BrokerDashboard({ brokerFirstName }: { brokerFirstName: string }
 
   const active = data?.activeAssignments ?? [];
 
+  useNewItemAlert(
+    active.map((a) => a.id),
+    {
+      soundEnabled: data?.soundEnabled ?? true,
+      notify: (newIds) => {
+        const first = active.find((a) => newIds.includes(a.id));
+        if (first) showLeadNotification("Novo lead recebido", `${first.lead.name} está aguardando atendimento.`);
+      },
+    }
+  );
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
+      <NotificationPermissionBanner />
       <h1 className="text-2xl font-semibold text-foreground">Olá, {brokerFirstName}.</h1>
       <p className="mt-1 text-text-secondary">
         {isLoading

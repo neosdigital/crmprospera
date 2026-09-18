@@ -31,10 +31,6 @@ export default async function BrokerProfilePage() {
           <p className="text-xs uppercase tracking-wide text-text-secondary">Telefone</p>
           <p className="text-foreground">{broker.phone ?? "—"}</p>
         </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-text-secondary">Posição na roleta</p>
-          <p className="text-foreground">#{broker.rotationPosition}</p>
-        </div>
         <ProfileSoundToggle initialValue={broker.soundEnabled} />
       </Card>
     </div>

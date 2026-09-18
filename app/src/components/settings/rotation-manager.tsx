@@ -63,12 +63,12 @@ export function RotationManager() {
 
   return (
     <div className="px-4 py-8 sm:px-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Roleta de atendimento</h1>
           <p className="mt-1 text-text-secondary">Ordem de distribuição automática dos leads entre corretores.</p>
         </div>
-        <Button onClick={() => setShowAdd((v) => !v)}>
+        <Button onClick={() => setShowAdd((v) => !v)} className="w-full sm:w-auto">
           <Plus size={16} />
           Adicionar corretor
         </Button>
@@ -104,30 +104,30 @@ export function RotationManager() {
           {brokers.map((b, idx) => (
             <li
               key={b.id}
-              className="flex items-center justify-between border-b border-[color:var(--color-border-gold)]/40 px-5 py-4 last:border-0"
+              className="flex flex-col gap-3 border-b border-[color:var(--color-border-gold)]/40 px-5 py-4 last:border-0 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-center gap-4">
-                <span className="w-6 text-sm text-text-secondary">{String(idx + 1).padStart(2, "0")}</span>
-                <div>
-                  <p className="font-medium text-foreground">{b.displayName}</p>
-                  <p className="text-xs text-text-secondary">{b.user.email}</p>
+                <span className="w-6 shrink-0 text-sm text-text-secondary">{String(idx + 1).padStart(2, "0")}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{b.displayName}</p>
+                  <p className="truncate text-xs text-text-secondary">{b.user.email}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 pl-10 sm:pl-0">
                 <Badge tone={b.status === "ACTIVE" && b.isInRotation ? "success" : "neutral"}>
                   {b.status === "ACTIVE" && b.isInRotation ? "ATIVO" : b.status === "PAUSED" ? "PAUSADO" : "INATIVO"}
                 </Badge>
                 <button
                   onClick={() => move(b.id, "up")}
-                  className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-2 hover:text-foreground"
+                  className="rounded-lg p-2 text-text-secondary hover:bg-surface-2 hover:text-foreground"
                   aria-label="Mover para cima"
                 >
                   <ArrowUp size={16} />
                 </button>
                 <button
                   onClick={() => move(b.id, "down")}
-                  className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-2 hover:text-foreground"
+                  className="rounded-lg p-2 text-text-secondary hover:bg-surface-2 hover:text-foreground"
                   aria-label="Mover para baixo"
                 >
                   <ArrowDown size={16} />
