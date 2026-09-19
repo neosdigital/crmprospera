@@ -12,7 +12,7 @@ function getKey(): Buffer {
   return Buffer.from(hex, "hex");
 }
 
-/** Criptografa um texto (ex: access_token da Meta) para armazenamento em repouso. */
+/** Criptografa um texto (ex: access_token da Meta/WhatsApp) para armazenamento em repouso. */
 export function encryptSecret(plainText: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);

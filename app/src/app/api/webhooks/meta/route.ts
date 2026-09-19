@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma, AuditAction, distributeNewLead } from "@crm/db";
-import { decryptSecret } from "@/lib/crypto";
+import { prisma, AuditAction, distributeNewLead, decryptSecret } from "@crm/db";
 import {
   verifyMetaSignature,
   fetchLeadDetails,

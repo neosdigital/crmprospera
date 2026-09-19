@@ -1,6 +1,7 @@
 import { prisma } from "./index";
 import { AssignmentStatus, LeadStatus, AuditAction } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, LeadAssignment } from "@prisma/client";
+import { notifyBrokerNewAssignment, notifyBrokerExpired, hasActiveWhatsAppIntegration } from "./whatsapp";
 
 type Tx = Prisma.TransactionClient;
 
@@ -126,11 +127,58 @@ export async function assignNextLead(
 }
 
 /**
+ * Notifica o corretor recém-atribuído por WhatsApp. Chamada sempre FORA da transação
+ * (depois do commit) — nunca faz chamada de rede externa dentro de uma transação
+ * interativa do Postgres. Best-effort: erros ficam só nos logs/audit_logs de whatsapp.ts,
+ * nunca propagam para quem chamou (a atribuição já está gravada e vale independente
+ * do WhatsApp ter saído ou não).
+ */
+async function notifyAssignmentCreated(organizationId: string, assignment: LeadAssignment) {
+  if (!(await hasActiveWhatsAppIntegration(organizationId))) return;
+
+  const [broker, lead, org] = await Promise.all([
+    prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
+    prisma.lead.findUnique({ where: { id: assignment.leadId } }),
+    prisma.organization.findUnique({ where: { id: organizationId } }),
+  ]);
+  if (!broker || !lead || !org) return;
+
+  await notifyBrokerNewAssignment({
+    organizationId,
+    leadId: lead.id,
+    brokerPhone: broker.phone,
+    brokerName: broker.displayName,
+    leadName: lead.name,
+    leadPhone: lead.phone,
+    timeoutMinutes: org.responseTimeoutMinutes,
+  });
+}
+
+/** Avisa por WhatsApp o corretor que deixou o prazo esgotar sem responder (mesma regra de best-effort acima). */
+async function notifyAssignmentExpired(assignment: LeadAssignment) {
+  if (!(await hasActiveWhatsAppIntegration(assignment.organizationId))) return;
+
+  const [broker, lead] = await Promise.all([
+    prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
+    prisma.lead.findUnique({ where: { id: assignment.leadId } }),
+  ]);
+  if (!broker || !lead) return;
+
+  await notifyBrokerExpired({
+    organizationId: assignment.organizationId,
+    leadId: lead.id,
+    brokerPhone: broker.phone,
+    brokerName: broker.displayName,
+    leadName: lead.name,
+  });
+}
+
+/**
  * Distribui um lead recém-criado (novo lead do Meta ou criado manualmente).
  * Ponto de entrada público — abre a própria transação e bloqueia rotation_state.
  */
 export async function distributeNewLead(organizationId: string, leadId: string) {
-  return prisma.$transaction(
+  const assignment = await prisma.$transaction(
     async (tx) => {
       const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId } });
 
@@ -146,6 +194,12 @@ export async function distributeNewLead(organizationId: string, leadId: string) 
     },
     TX_OPTIONS
   );
+
+  if (assignment) {
+    await notifyAssignmentCreated(organizationId, assignment);
+  }
+
+  return assignment;
 }
 
 /**
@@ -220,7 +274,7 @@ export async function claimLead(params: { organizationId: string; leadId: string
  * seções 57/58 do escopo).
  */
 export async function expireAndRotate(assignmentId: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM lead_assignments WHERE id = ${assignmentId} FOR UPDATE
     `;
@@ -269,8 +323,17 @@ export async function expireAndRotate(assignmentId: string) {
       },
     });
 
-    return { expired: true as const, nextAssignment: next };
+    return { expired: true as const, expiredAssignment: assignment, nextAssignment: next };
   }, TX_OPTIONS);
+
+  if (result.expired) {
+    await notifyAssignmentExpired(result.expiredAssignment);
+    if (result.nextAssignment) {
+      await notifyAssignmentCreated(result.expiredAssignment.organizationId, result.nextAssignment);
+    }
+  }
+
+  return result;
 }
 
 /** Usado pelo worker: lista os IDs de tentativas vencidas prontas para expirar. */

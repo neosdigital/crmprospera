@@ -3,11 +3,28 @@ import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
 import { prisma } from "@crm/db";
 
-function startOfPeriod(period: string): Date {
+/** Resolve o período em { since, until }. "custom" usa from/to (datas ISO) vindos da query. */
+function resolvePeriod(url: URL): { period: string; since: Date; until: Date } {
   const now = new Date();
-  if (period === "7d") return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  if (period === "30d") return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()); // "today"
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const period = url.searchParams.get("period") ?? "today";
+
+  if (period === "custom") {
+    const fromParam = url.searchParams.get("from");
+    const toParam = url.searchParams.get("to");
+    const from = fromParam ? new Date(fromParam) : null;
+    const to = toParam ? new Date(toParam) : null;
+    if (from && to && !isNaN(from.getTime()) && !isNaN(to.getTime())) {
+      // "to" é só a data (sem hora): estende até o fim do dia para incluir o dia inteiro.
+      const until = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999);
+      return { period, since: from, until };
+    }
+    return { period: "today", since: startOfToday, until: now };
+  }
+
+  if (period === "7d") return { period, since: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), until: now };
+  if (period === "30d") return { period, since: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), until: now };
+  return { period: "today", since: startOfToday, until: now };
 }
 
 export async function GET(req: Request) {
@@ -17,8 +34,7 @@ export async function GET(req: Request) {
     const organizationId = session.user.organizationId;
 
     const url = new URL(req.url);
-    const period = url.searchParams.get("period") ?? "today";
-    const since = startOfPeriod(period);
+    const { period, since, until } = resolvePeriod(url);
 
     const [
       leadsInPeriod,
@@ -32,15 +48,15 @@ export async function GET(req: Request) {
       leadsByStatus,
       expiredByBroker,
     ] = await Promise.all([
-      db.lead.count({ where: { createdAt: { gte: since } } }),
+      db.lead.count({ where: { createdAt: { gte: since, lte: until } } }),
       db.lead.count({ where: { status: { in: ["WAITING_ASSIGNMENT", "ASSIGNED"] } } }),
       db.lead.count({ where: { status: { in: ["CONTACTED", "IN_PROGRESS", "QUALIFIED", "SCHEDULED"] } } }),
       db.leadAssignment.findMany({
-        where: { organizationId, status: "CONTACTED", assignedAt: { gte: since } },
+        where: { organizationId, status: "CONTACTED", assignedAt: { gte: since, lte: until } },
         select: { assignedAt: true, respondedAt: true },
       }),
-      db.leadAssignment.count({ where: { assignedAt: { gte: since } } }),
-      db.lead.count({ where: { status: "CONVERTED", convertedAt: { gte: since } } }),
+      db.leadAssignment.count({ where: { assignedAt: { gte: since, lte: until } } }),
+      db.lead.count({ where: { status: "CONVERTED", convertedAt: { gte: since, lte: until } } }),
       db.broker.findMany({
         where: {},
         select: {
@@ -51,7 +67,7 @@ export async function GET(req: Request) {
           rotationPosition: true,
           _count: { select: { leadAssignments: true } },
           leadAssignments: {
-            where: { assignedAt: { gte: since } },
+            where: { assignedAt: { gte: since, lte: until } },
             select: { status: true },
           },
         },
@@ -59,17 +75,17 @@ export async function GET(req: Request) {
       }),
       db.lead.groupBy({
         by: ["campaignName"],
-        where: { createdAt: { gte: since }, campaignName: { not: null } },
+        where: { createdAt: { gte: since, lte: until }, campaignName: { not: null } },
         _count: { _all: true },
       }),
       db.lead.groupBy({
         by: ["status"],
-        where: { createdAt: { gte: since } },
+        where: { createdAt: { gte: since, lte: until } },
         _count: { _all: true },
       }),
       db.leadAssignment.groupBy({
         by: ["brokerId"],
-        where: { status: "EXPIRED", assignedAt: { gte: since } },
+        where: { status: "EXPIRED", assignedAt: { gte: since, lte: until } },
         _count: { _all: true },
       }),
     ]);

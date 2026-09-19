@@ -1,9 +1,10 @@
 # CRM Prospera
 
 CRM multi-tenant para imobiliárias com distribuição automática de leads do Meta Lead Ads:
-webhook → roleta round-robin entre corretores → temporizador real controlado pelo servidor →
-transferência automática se ninguém responder a tempo → dashboards em tempo (quase) real para
-dono e corretores.
+webhook → ranking fixo de corretores (todo lead novo vai para o #1; só escala para o próximo
+se quem está acima não responder a tempo) → temporizador real controlado pelo servidor →
+transferência automática se ninguém responder a tempo → aviso por WhatsApp ao corretor (novo
+lead e prazo esgotado) → dashboards em tempo (quase) real para dono e corretores.
 
 Identidade visual: preto (`#191919`) + dourado (`#F6C324`) + off-white (`#FFFFF0`).
 
@@ -179,6 +180,43 @@ não foi assumido nada de versões antigas da API.
   caso de falha de ack por até 36h) nunca duplicam o lead; o CRM registra um evento
   `WEBHOOK_DUPLICATE` e não redistribui.
 
+## Configuração do WhatsApp (aviso automático para corretores)
+
+Usa a **WhatsApp Cloud API** oficial da Meta (gratuita dentro do volume normal de uma operação
+pequena/média, sem risco de banimento de número — ao contrário de bibliotecas não-oficiais que
+imitam o WhatsApp Web). Duas mensagens automáticas por lead: (1) quando ele é atribuído a um
+corretor (novo ou escalado de outro que não respondeu), e (2) quando esse corretor deixa o
+prazo esgotar sem responder.
+
+1. **Reaproveite o app da Meta** já criado para os Leads (ou crie um novo em
+   [developers.facebook.com/apps](https://developers.facebook.com/apps)) e adicione o produto
+   **WhatsApp**.
+2. **Número de telefone**: cadastre e verifique um número da empresa no painel do produto
+   WhatsApp — não pode ser um número que já tem uma conta pessoal/Business ativa no app do
+   celular. A Meta fornece um número de teste gratuito para desenvolvimento (mensagens só para
+   destinatários cadastrados como "número de teste"); para produção real, verifique um número
+   próprio.
+3. **Templates de mensagem**: business-initiated fora da janela de 24h só pode usar templates
+   pré-aprovados. Em **WhatsApp Manager → Modelos de mensagem**, crie os dois abaixo (categoria
+   **Utilidade**, idioma **Português (BR)**) — os textos exatos também aparecem em
+   `/settings/integrations/whatsapp`:
+   - `novo_lead_atribuido`: "Olá {{1}}! Você recebeu um novo lead no CRM Próspera: {{2}},
+     telefone {{3}}. Você tem {{4}} minutos para entrar em contato antes que ele passe para o
+     próximo corretor."
+   - `lead_expirado_corretor`: "Atenção {{1}}: o tempo para atender o lead {{2}} esgotou e ele
+     foi transferido para o próximo corretor da fila."
+   A aprovação pode levar de minutos a alguns dias; enquanto pendente, o envio falha e fica
+   registrado em `audit_logs`/no campo "Último erro" da integração, sem travar a distribuição
+   do lead (é best-effort).
+4. **Token de acesso** com a permissão `whatsapp_business_messaging` (o mesmo System User usado
+   para os Leads pode ganhar essa permissão extra).
+5. **Conectar no CRM**: em `/settings/integrations/whatsapp`, informe o **Phone Number ID** e o
+   token. O CRM testa (`GET /{phone-number-id}`) e salva o token **criptografado**.
+6. **Cadastre o telefone pessoal de cada corretor** em `/settings/brokers` (campo já existente)
+   — é para esse número que as mensagens são enviadas.
+7. **Testar**: use o campo "Testar com um número" na própria tela de configuração antes de
+   depender de um lead real.
+
 ## Segurança e RBAC
 
 - Roles: `OWNER`, `ADMIN`, `BROKER`. Middleware (`src/middleware.ts`) redireciona por role;
@@ -187,8 +225,9 @@ não foi assumido nada de versões antigas da API.
   por `scopedDb(organizationId)`, que injeta o filtro a partir da sessão; (2) o motor de
   rotação/claim/expiração (código de sistema, não uma requisição de usuário) sempre recebe
   `organizationId` explícito e o valida em toda escrita.
-- Tokens da Meta nunca ficam em texto puro: criptografados com AES-256-GCM
-  (`META_TOKEN_ENCRYPTION_KEY`) antes de salvar; nunca expostos ao frontend.
+- Tokens da Meta (Leads e WhatsApp) nunca ficam em texto puro: criptografados com AES-256-GCM
+  (`META_TOKEN_ENCRYPTION_KEY`, compartilhada entre app e worker) antes de salvar; nunca
+  expostos ao frontend.
 - Senhas com bcrypt; sessão JWT assinada (`AUTH_SECRET`).
 - `/api/cron/expire-assignments` (fallback de teste do worker) exige
   `Authorization: Bearer $CRON_SECRET`.
@@ -202,10 +241,12 @@ o domínio de produção.
 
 **Worker (Railway)**: crie um novo serviço no mesmo projeto Railway a partir deste repositório,
 *root directory* `worker`, comando de start `npm run start --workspace worker` (ou
-`node --import tsx src/index.ts`), com `DATABASE_URL` apontando para o mesmo Postgres. Esse
-processo precisa ficar **sempre ativo** — é ele quem expira e transfere leads sem depender do
-navegador de ninguém estar aberto (seção "o sistema continua funcionando mesmo com o navegador
-fechado").
+`node --import tsx src/index.ts`), com `DATABASE_URL` apontando para o mesmo Postgres e
+`META_TOKEN_ENCRYPTION_KEY` com o **mesmo valor** usado na Vercel (o worker precisa decifrar
+tokens de integrações — Meta e WhatsApp — que foram criptografados pelo app). Esse processo
+precisa ficar **sempre ativo** — é ele quem expira e transfere leads (e dispara o aviso de
+"prazo esgotado" por WhatsApp) sem depender do navegador de ninguém estar aberto (seção "o
+sistema continua funcionando mesmo com o navegador fechado").
 
 ## Evoluindo o realtime
 

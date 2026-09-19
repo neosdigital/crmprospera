@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import crypto from "crypto";
-import { prisma } from "@crm/db";
-import { encryptSecret } from "../src/lib/crypto";
+import { prisma, encryptSecret } from "@crm/db";
 import { createTestOrg, cleanupTestOrg } from "./helpers";
 
 process.env.META_APP_SECRET = "test_app_secret_for_vitest";

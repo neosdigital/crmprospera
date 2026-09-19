@@ -15,7 +15,7 @@ const ITEMS = [
   { href: "/settings/rotation", label: "Roleta", icon: <RefreshCw size={ICON_SIZE} /> },
   { href: "/settings/brokers", label: "Corretores", icon: <Users2 size={ICON_SIZE} /> },
   { href: "/reports", label: "Relatórios", icon: <BarChart3 size={ICON_SIZE} /> },
-  { href: "/settings/integrations/meta", label: "Integrações", icon: <Plug size={ICON_SIZE} /> },
+  { href: "/settings/integrations", label: "Integrações", icon: <Plug size={ICON_SIZE} /> },
   { href: "/settings", label: "Configurações", icon: <Settings size={ICON_SIZE} /> },
 ];
 

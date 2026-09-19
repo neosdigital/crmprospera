@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
-import { decryptSecret } from "@/lib/crypto";
 import { testPageConnection } from "@/lib/meta";
-import { prisma } from "@crm/db";
+import { prisma, decryptSecret } from "@crm/db";
 
 const bodySchema = z.object({ integrationId: z.string().min(1) });
 

@@ -66,6 +66,8 @@ enum AuditAction {
   WEBHOOK_DUPLICATE
   AUTH_LOGIN
   AUTH_LOGIN_FAILED
+  WHATSAPP_SENT
+  WHATSAPP_FAILED
 }
 
 // ============================================================
@@ -80,13 +82,14 @@ model Organization {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
-  users            User[]
-  brokers          Broker[]
-  leads            Lead[]
-  leadAssignments  LeadAssignment[]
-  rotationState    RotationState?
-  metaIntegrations MetaIntegration[]
-  auditLogs        AuditLog[]
+  users               User[]
+  brokers             Broker[]
+  leads               Lead[]
+  leadAssignments     LeadAssignment[]
+  rotationState       RotationState?
+  metaIntegrations    MetaIntegration[]
+  whatsappIntegration WhatsAppIntegration?
+  auditLogs           AuditLog[]
 
   @@map("organizations")
 }
@@ -233,6 +236,28 @@ model MetaIntegration {
 
   @@unique([organizationId, pageId])
   @@map("meta_integrations")
+}
+
+// ============================================================
+// WHATSAPP (Cloud API) — notificação de corretores
+// ============================================================
+
+model WhatsAppIntegration {
+  id                    String    @id @default(cuid())
+  organizationId        String    @unique @map("organization_id")
+  phoneNumberId         String    @map("phone_number_id")
+  displayPhoneNumber    String?   @map("display_phone_number")
+  accessTokenEncrypted  String    @map("access_token_encrypted")
+  isActive              Boolean   @default(true) @map("is_active")
+  lastMessageAt         DateTime? @map("last_message_at")
+  lastErrorAt           DateTime? @map("last_error_at")
+  lastError             String?   @map("last_error")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_integrations")
 }
 
 // ============================================================

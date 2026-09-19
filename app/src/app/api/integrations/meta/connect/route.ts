@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
-import { encryptSecret } from "@/lib/crypto";
 import { testPageConnection, subscribePageToLeadgenWebhook } from "@/lib/meta";
-import { prisma, AuditAction } from "@crm/db";
+import { prisma, AuditAction, encryptSecret } from "@crm/db";
 
 const bodySchema = z.object({
   pageId: z.string().min(1),
