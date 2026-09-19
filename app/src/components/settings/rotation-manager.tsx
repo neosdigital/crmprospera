@@ -20,6 +20,62 @@ type Broker = {
   user: { email: string; name: string };
 };
 
+function BrokerPhoneEditor({ broker, onSaved }: { broker: Broker; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(broker.phone ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await fetch(`/api/brokers/${broker.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: value.trim() || null }),
+      });
+      onSaved();
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        <Input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="+5547999998888"
+          className="h-7 w-40 px-2 py-1 text-xs"
+        />
+        <Button className="px-2 py-1 text-xs" disabled={saving} onClick={save}>
+          {saving ? "..." : "Salvar"}
+        </Button>
+        <button
+          onClick={() => {
+            setValue(broker.phone ?? "");
+            setEditing(false);
+          }}
+          className="text-xs text-text-secondary hover:text-foreground"
+        >
+          Cancelar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="mt-0.5 truncate text-xs text-text-secondary underline decoration-dotted hover:text-foreground"
+    >
+      {broker.phone ?? "Adicionar telefone (WhatsApp)"}
+    </button>
+  );
+}
+
 export function RotationManager() {
   const { data, mutate, isLoading } = useSWR<{ brokers: Broker[] }>("/api/brokers", fetcher);
   const [showAdd, setShowAdd] = useState(false);
@@ -115,6 +171,7 @@ export function RotationManager() {
                 <div className="min-w-0">
                   <p className="truncate font-medium text-foreground">{b.displayName}</p>
                   <p className="truncate text-xs text-text-secondary">{b.user.email}</p>
+                  <BrokerPhoneEditor broker={b} onSaved={() => mutate()} />
                 </div>
               </div>
 
