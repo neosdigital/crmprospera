@@ -67,7 +67,10 @@ export function RotationManager() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Roleta de atendimento</h1>
-          <p className="mt-1 text-text-secondary">Ordem de distribuição automática dos leads entre corretores.</p>
+          <p className="mt-1 text-text-secondary">
+            Ranking de prioridade: todo lead novo vai primeiro para o corretor do topo. Só passa
+            para o próximo da lista se quem está acima não responder dentro do tempo.
+          </p>
         </div>
         <Button onClick={() => setShowAdd((v) => !v)} className="w-full sm:w-auto">
           <Plus size={16} />

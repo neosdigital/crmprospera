@@ -85,8 +85,6 @@ export async function GET(req: Request) {
     const responseRate =
       totalAssignmentsInPeriod > 0 ? contactedAssignments.length / totalAssignmentsInPeriod : null;
 
-    const rotationState = await prisma.rotationState.findUnique({ where: { organizationId } });
-
     return NextResponse.json({
       period,
       kpis: {
@@ -111,13 +109,10 @@ export async function GET(req: Request) {
       leadsByStatus: leadsByStatus.map((s) => ({ status: s.status, count: s._count._all })),
       expiredByBroker,
       rotation: {
-        currentPosition: rotationState?.currentPosition ?? null,
-        nextBroker:
-          leadsByBroker
-            .filter((b) => b.status === "ACTIVE" && b.isInRotation)
-            .find((b) => b.rotationPosition >= (rotationState?.currentPosition ?? 1))?.displayName ??
-          leadsByBroker.find((b) => b.status === "ACTIVE" && b.isInRotation)?.displayName ??
-          null,
+        // Todo lead novo vai sempre para o topo do ranking (ver packages/db/src/rotation.ts) —
+        // "próximo" não é mais um ponteiro rotativo, é simplesmente o primeiro corretor
+        // ativo do ranking.
+        nextBroker: leadsByBroker.find((b) => b.status === "ACTIVE" && b.isInRotation)?.displayName ?? null,
       },
     });
   } catch (error) {

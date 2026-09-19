@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { leadStatusLabel } from "@/lib/labels";
+import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   NEW: "neutral",
@@ -51,8 +52,13 @@ export default async function LeadsPage({
 
   return (
     <div className="px-4 py-8 sm:px-8">
-      <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
-      <p className="mt-1 text-text-secondary">Todos os leads recebidos pela organização.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
+          <p className="mt-1 text-text-secondary">Todos os leads recebidos pela organização.</p>
+        </div>
+        <SendTestLeadButton />
+      </div>
 
       <form className="mt-6 flex flex-col gap-3 sm:flex-row" method="get">
         <Input name="search" placeholder="Buscar por nome, telefone ou email" defaultValue={search} className="sm:max-w-xs" />

@@ -30,7 +30,7 @@ type MetricsResponse = {
   }[];
   leadsByCampaign: { campaign: string | null; count: number }[];
   leadsByStatus: { status: string; count: number }[];
-  rotation: { currentPosition: number | null; nextBroker: string | null };
+  rotation: { nextBroker: string | null };
 };
 
 const PERIODS = [

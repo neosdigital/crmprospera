@@ -20,11 +20,12 @@ export class ClaimError extends Error {
 }
 
 /**
- * Escolhe o próximo corretor elegível a partir de rotation_state.current_position,
- * com wraparound (volta ao início da fila quando ultrapassa o último).
+ * Escolhe o próximo corretor elegível a partir da posição imediatamente acima de
+ * `afterPosition` no ranking (rotation_position), com wraparound para o topo quando
+ * ultrapassa o último. `afterPosition = 0` sempre resolve para o corretor #1 do ranking.
  * Corretores pausados/inativos são simplesmente pulados (seção 45 do escopo).
  */
-async function pickNextBroker(tx: Tx, organizationId: string) {
+async function pickNextBroker(tx: Tx, organizationId: string, afterPosition: number) {
   const eligible = await tx.broker.findMany({
     where: { organizationId, status: "ACTIVE", isInRotation: true },
     orderBy: { rotationPosition: "asc" },
@@ -32,23 +33,22 @@ async function pickNextBroker(tx: Tx, organizationId: string) {
 
   if (eligible.length === 0) return null;
 
-  const rotationState = await tx.rotationState.findUniqueOrThrow({
-    where: { organizationId },
-  });
+  const next = eligible.find((b) => b.rotationPosition > afterPosition) ?? eligible[0];
 
-  const next =
-    eligible.find((b) => b.rotationPosition >= rotationState.currentPosition) ?? eligible[0];
-
-  const newPosition = next.rotationPosition + 1;
-
-  return { broker: next, newPosition };
+  return { broker: next };
 }
 
 /**
  * Cria uma nova tentativa de atribuição (lead_assignment) para o próximo corretor elegível
- * e avança o ponteiro da roleta. Deve ser chamada dentro de uma transação que já tenha
- * bloqueado (FOR UPDATE) a linha de rotation_state da organização, para serializar
- * atribuições concorrentes (seção 7 do escopo).
+ * e avança a escalação DESTE lead. Todo lead novo começa sempre no topo do ranking
+ * (corretor #1); só avança para o colocado seguinte quando a tentativa anterior — PARA
+ * ESTE MESMO LEAD — expirou sem resposta. Não existe mais um ponteiro global de "próximo
+ * corretor" compartilhado entre leads: cada lead tem sua própria cadeia de escalação,
+ * recalculada a partir do corretor da sua última tentativa (rotation_state.current_position
+ * fica congelado, mantido só por compatibilidade de schema).
+ *
+ * Deve ser chamada dentro de uma transação que já tenha bloqueado (FOR UPDATE) a linha de
+ * rotation_state da organização, para serializar atribuições concorrentes (seção 7 do escopo).
  */
 export async function assignNextLead(
   tx: Tx,
@@ -62,7 +62,16 @@ export async function assignNextLead(
   });
   const attemptNumber = (lastAttempt?.attemptNumber ?? 0) + 1;
 
-  const picked = await pickNextBroker(tx, organizationId);
+  let afterPosition = 0;
+  if (lastAttempt) {
+    const lastBroker = await tx.broker.findUnique({
+      where: { id: lastAttempt.brokerId },
+      select: { rotationPosition: true },
+    });
+    afterPosition = lastBroker?.rotationPosition ?? 0;
+  }
+
+  const picked = await pickNextBroker(tx, organizationId, afterPosition);
 
   if (!picked) {
     await tx.lead.update({
@@ -100,11 +109,6 @@ export async function assignNextLead(
   await tx.lead.update({
     where: { id: leadId },
     data: { status: LeadStatus.ASSIGNED, currentBrokerId: picked.broker.id },
-  });
-
-  await tx.rotationState.update({
-    where: { organizationId },
-    data: { currentPosition: picked.newPosition },
   });
 
   await tx.auditLog.create({

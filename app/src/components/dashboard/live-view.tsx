@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
 import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
 import { leadStatusLabel } from "@/lib/labels";
+import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 
 type LiveLead = {
   id: string;
@@ -151,7 +152,7 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
 }
 
 export function LiveView() {
-  const { data } = useSWR<LiveResponse>("/api/dashboard/live", fetcher, { refreshInterval: 2500 });
+  const { data, mutate } = useSWR<LiveResponse>("/api/dashboard/live", fetcher, { refreshInterval: 2500 });
 
   const [offsetMs, setOffsetMs] = useState(0);
   useEffect(() => {
@@ -175,8 +176,13 @@ export function LiveView() {
   return (
     <div className="px-4 py-8 sm:px-8">
       <NotificationPermissionBanner />
-      <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>
-      <p className="mt-1 text-text-secondary">Acompanhe em tempo real onde cada lead está agora.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>
+          <p className="mt-1 text-text-secondary">Acompanhe em tempo real onde cada lead está agora.</p>
+        </div>
+        <SendTestLeadButton onSent={() => mutate()} />
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {data?.activeLeads.length === 0 && (
