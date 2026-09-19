@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { assignmentStatusLabel } from "@/lib/labels";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   CONTACTED: "success",
@@ -43,7 +44,7 @@ export default async function BrokerHistoryPage() {
                 {formatDistanceToNow(a.assignedAt, { addSuffix: true, locale: ptBR })}
               </p>
             </div>
-            <Badge tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status}</Badge>
+            <Badge tone={STATUS_TONE[a.status] ?? "neutral"}>{assignmentStatusLabel(a.status)}</Badge>
           </Card>
         ))}
       </div>

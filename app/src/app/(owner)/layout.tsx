@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { SignOutButton } from "@/components/layout/sign-out-button";
 
 const ICON_SIZE = 18;
 
@@ -26,7 +27,12 @@ export default async function OwnerLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex min-h-screen flex-col bg-background md:flex-row">
-      <MobileNav items={ITEMS} orgName={org?.name ?? ""} />
+      <MobileNav
+        items={ITEMS}
+        orgName={org?.name ?? ""}
+        userName={session.user.name ?? ""}
+        signOutSlot={<SignOutButton />}
+      />
       <Sidebar items={ITEMS} orgName={org?.name ?? ""} userName={session.user.name ?? ""} />
       <main className="flex-1 overflow-y-auto">{children}</main>
     </div>

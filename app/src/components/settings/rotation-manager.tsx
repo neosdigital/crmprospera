@@ -8,6 +8,7 @@ import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { brokerStatusLabel } from "@/lib/labels";
 
 type Broker = {
   id: string;
@@ -116,7 +117,7 @@ export function RotationManager() {
 
               <div className="flex flex-wrap items-center gap-3 pl-10 sm:pl-0">
                 <Badge tone={b.status === "ACTIVE" && b.isInRotation ? "success" : "neutral"}>
-                  {b.status === "ACTIVE" && b.isInRotation ? "ATIVO" : b.status === "PAUSED" ? "PAUSADO" : "INATIVO"}
+                  {b.status === "ACTIVE" && b.isInRotation ? "Ativo" : brokerStatusLabel(b.status)}
                 </Badge>
                 <button
                   onClick={() => move(b.id, "up")}

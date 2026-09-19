@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
+import { sweepOrganizationExpirations } from "@crm/db";
 
 export async function GET() {
   try {
     const session = await requireSession(["OWNER", "ADMIN"]);
+
+    await sweepOrganizationExpirations(session.user.organizationId);
+
     const db = scopedDb(session.user.organizationId);
 
     const activeLeads = await db.lead.findMany({
@@ -14,9 +18,8 @@ export async function GET() {
       include: {
         currentBroker: { select: { id: true, displayName: true } },
         assignments: {
-          where: { status: "ASSIGNED" },
-          take: 1,
-          orderBy: { attemptNumber: "desc" },
+          orderBy: { attemptNumber: "asc" },
+          include: { broker: { select: { displayName: true } } },
         },
       },
     });
@@ -28,13 +31,25 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      activeLeads: activeLeads.map((lead) => ({
-        id: lead.id,
-        name: lead.name,
-        status: lead.status,
-        brokerName: lead.currentBroker?.displayName ?? null,
-        expiresAt: lead.assignments[0]?.expiresAt ?? null,
-      })),
+      activeLeads: activeLeads.map((lead) => {
+        const currentAssignment =
+          lead.assignments.find((a) => a.status === "ASSIGNED") ?? lead.assignments[lead.assignments.length - 1];
+
+        return {
+          id: lead.id,
+          name: lead.name,
+          phone: lead.phone,
+          email: lead.email,
+          campaignName: lead.campaignName,
+          customFields: lead.customFields,
+          status: lead.status,
+          brokerName: lead.currentBroker?.displayName ?? null,
+          assignedAt: currentAssignment?.assignedAt ?? null,
+          expiresAt: currentAssignment?.status === "ASSIGNED" ? currentAssignment.expiresAt : null,
+          brokersPassedCount: lead.assignments.length,
+          brokersPassedNames: lead.assignments.map((a) => a.broker.displayName),
+        };
+      }),
       recentlyExpired: recentlyExpired.map((lead) => ({ id: lead.id, name: lead.name })),
       serverNow: new Date().toISOString(),
     });

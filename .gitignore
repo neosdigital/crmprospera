@@ -11,3 +11,5 @@ build/
 .DS_Store
 .railway/
 coverage/
+.vercel
+.env*

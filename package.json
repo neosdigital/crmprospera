@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "npm run dev --workspace app",
     "build": "npm run build --workspace app",
+    "start": "npm run worker",
     "worker": "npm run start --workspace worker",
     "db:generate": "npm run generate --workspace @crm/db",
     "db:migrate": "npm run migrate:dev --workspace @crm/db",

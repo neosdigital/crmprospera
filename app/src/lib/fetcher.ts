@@ -29,3 +29,16 @@ export async function poster<T = unknown>(url: string, body?: unknown): Promise<
   }
   return info as T;
 }
+
+export async function patcher<T = unknown>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const info = await res.json().catch(() => undefined);
+  if (!res.ok) {
+    throw new FetchError((info as { error?: string })?.error ?? "Erro na requisição", res.status, info);
+  }
+  return info as T;
+}

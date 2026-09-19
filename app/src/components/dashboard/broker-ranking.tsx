@@ -1,5 +1,6 @@
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { brokerStatusLabel } from "@/lib/labels";
 
 type BrokerRow = {
   id: string;
@@ -44,7 +45,7 @@ export function BrokerRanking({ brokers, nextBroker }: { brokers: BrokerRow[]; n
                 </td>
                 <td className="py-2.5 pr-4">
                   <Badge tone={b.status === "ACTIVE" && b.isInRotation ? "success" : "neutral"}>
-                    {b.status === "ACTIVE" && b.isInRotation ? "ATIVO" : b.status === "PAUSED" ? "PAUSADO" : "INATIVO"}
+                    {b.status === "ACTIVE" && b.isInRotation ? "Ativo" : brokerStatusLabel(b.status)}
                   </Badge>
                 </td>
                 <td className="py-2.5 pr-4">{b.totalReceived}</td>

@@ -158,6 +158,7 @@ model Lead {
   formName        String?    @map("form_name")
   customFields    Json       @default("{}") @map("custom_fields")
   status          LeadStatus @default(NEW)
+  notes           String?    @map("notes")
   currentBrokerId String?    @map("current_broker_id")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")

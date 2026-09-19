@@ -4,6 +4,8 @@ import { scopedDb } from "@/lib/tenant-db";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { leadStatusLabel, assignmentStatusLabel } from "@/lib/labels";
+import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
 
 const AUDIT_LABEL: Record<string, string> = {
   LEAD_RECEIVED: "Lead recebido",
@@ -86,13 +88,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         <Card>
           <CardLabel>Situação atual</CardLabel>
           <div className="mt-3 space-y-2 text-sm">
-            <Badge tone="gold">{lead.status}</Badge>
+            <Badge tone="gold">{leadStatusLabel(lead.status)}</Badge>
             <p>
               <span className="text-text-secondary">Corretor atual: </span>
               {lead.currentBroker?.displayName ?? "—"}
             </p>
             <p>
-              <span className="text-text-secondary">Tentativas: </span>
+              <span className="text-text-secondary">Corretores que já passaram: </span>
               {lead.assignments.length}
             </p>
           </div>
@@ -104,10 +106,14 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                   #{a.attemptNumber} {a.broker.displayName}
                 </span>
                 <Badge tone={a.status === "CONTACTED" ? "success" : a.status === "EXPIRED" ? "danger" : "gold"}>
-                  {a.status}
+                  {assignmentStatusLabel(a.status)}
                 </Badge>
               </div>
             ))}
+          </div>
+
+          <div className="mt-4 border-t border-[color:var(--color-border-gold)] pt-4">
+            <LeadNotesEditor leadId={lead.id} initialNotes={lead.notes} />
           </div>
         </Card>
 

@@ -7,6 +7,7 @@ import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { SimpleBarChart } from "@/components/dashboard/simple-bar-chart";
 import { BrokerRanking } from "@/components/dashboard/broker-ranking";
 import { Button } from "@/components/ui/button";
+import { leadStatusLabel } from "@/lib/labels";
 
 type MetricsResponse = {
   kpis: {
@@ -78,7 +79,7 @@ export function OwnerDashboard() {
             />
             <SimpleBarChart
               title="Leads por status"
-              data={data.leadsByStatus.map((s) => ({ name: s.status, count: s.count }))}
+              data={data.leadsByStatus.map((s) => ({ name: leadStatusLabel(s.status), count: s.count }))}
             />
           </div>
 

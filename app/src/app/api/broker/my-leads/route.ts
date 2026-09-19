@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
+import { sweepOrganizationExpirations } from "@crm/db";
 
 export async function GET() {
   try {
     const session = await requireSession(["BROKER"]);
     if (!session.user.brokerId) throw new ApiError(403, "Usuário não é um corretor.");
+
+    await sweepOrganizationExpirations(session.user.organizationId);
 
     const db = scopedDb(session.user.organizationId);
 

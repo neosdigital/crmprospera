@@ -270,12 +270,38 @@ export async function expireAndRotate(assignmentId: string) {
 }
 
 /** Usado pelo worker: lista os IDs de tentativas vencidas prontas para expirar. */
-export async function findExpiredAssignmentIds(limit = 50): Promise<string[]> {
-  const rows = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM lead_assignments
-    WHERE status = 'ASSIGNED' AND expires_at <= now()
-    ORDER BY expires_at ASC
-    LIMIT ${limit}
-  `;
+export async function findExpiredAssignmentIds(limit = 50, organizationId?: string): Promise<string[]> {
+  const rows = organizationId
+    ? await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM lead_assignments
+        WHERE status = 'ASSIGNED' AND expires_at <= now() AND organization_id = ${organizationId}
+        ORDER BY expires_at ASC
+        LIMIT ${limit}
+      `
+    : await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM lead_assignments
+        WHERE status = 'ASSIGNED' AND expires_at <= now()
+        ORDER BY expires_at ASC
+        LIMIT ${limit}
+      `;
   return rows.map((r) => r.id);
+}
+
+/**
+ * Rede de segurança contra a ausência (ou queda) do worker dedicado (`worker/`): varre e
+ * expira/rotaciona as tentativas vencidas de UMA organização. Pensada para ser chamada,
+ * best-effort, no início das rotas GET que já são consultadas em polling curto pelo
+ * frontend (dashboard "Ao vivo", "meus leads" do corretor) — assim a rotação avança mesmo
+ * se o processo `worker/` não estiver implantado, desde que alguém esteja com uma tela
+ * aberta. Não substitui o worker: com o app fechado por todos, nada aciona esta varredura.
+ */
+export async function sweepOrganizationExpirations(organizationId: string) {
+  const ids = await findExpiredAssignmentIds(50, organizationId);
+  for (const id of ids) {
+    try {
+      await expireAndRotate(id);
+    } catch (error) {
+      console.error("[rotation] falha ao expirar/rotacionar tentativa", id, error);
+    }
+  }
 }

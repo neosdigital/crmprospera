@@ -1,12 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Menu, X } from "lucide-react";
 import type { SidebarItem } from "@/components/layout/sidebar";
 
-export function MobileNav({ items, orgName }: { items: SidebarItem[]; orgName: string }) {
+export function MobileNav({
+  items,
+  orgName,
+  userName,
+  signOutSlot,
+}: {
+  items: SidebarItem[];
+  orgName: string;
+  userName?: string;
+  signOutSlot?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -43,6 +54,18 @@ export function MobileNav({ items, orgName }: { items: SidebarItem[]; orgName: s
                 </Link>
               ))}
             </nav>
+
+            {(userName || signOutSlot) && (
+              <div className="mt-6 border-t border-[color:var(--color-border-gold)] pt-4">
+                {userName && (
+                  <>
+                    <p className="truncate px-3 text-sm font-medium text-foreground">{userName}</p>
+                    <p className="truncate px-3 text-xs text-text-secondary">{orgName}</p>
+                  </>
+                )}
+                {signOutSlot}
+              </div>
+            )}
           </div>
           <button
             className="flex-1 bg-black/60"

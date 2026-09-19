@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
+import { leadStatusLabel } from "@/lib/labels";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   NEW: "neutral",
@@ -63,7 +64,7 @@ export default async function LeadsPage({
           <option value="">Todos os status</option>
           {Object.keys(STATUS_TONE).map((s) => (
             <option key={s} value={s}>
-              {s}
+              {leadStatusLabel(s)}
             </option>
           ))}
         </select>
@@ -105,7 +106,7 @@ export default async function LeadsPage({
                 <td className="px-4 py-3 text-text-secondary">{lead.campaignName ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{lead.currentBroker?.displayName ?? "—"}</td>
                 <td className="px-4 py-3">
-                  <Badge tone={STATUS_TONE[lead.status] ?? "neutral"}>{lead.status}</Badge>
+                  <Badge tone={STATUS_TONE[lead.status] ?? "neutral"}>{leadStatusLabel(lead.status)}</Badge>
                 </td>
                 <td className="px-4 py-3 text-text-secondary">{format(lead.createdAt, "dd/MM HH:mm")}</td>
               </tr>
