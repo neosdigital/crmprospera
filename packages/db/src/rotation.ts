@@ -127,14 +127,30 @@ export async function assignNextLead(
 }
 
 /**
+ * Verdadeiro só na primeira vez que ESTE corretor recebe ESTE lead. Se a roleta der uma
+ * volta completa (ninguém responde e o ranking cicla de volta ao topo — ver pickNextBroker),
+ * o mesmo corretor pode reaparecer numa tentativa posterior do mesmo lead; sem essa checagem,
+ * ele levaria um novo WhatsApp a cada volta, virando um flood enquanto ninguém responder.
+ */
+async function isFirstAttemptForBroker(leadId: string, brokerId: string, attemptNumber: number): Promise<boolean> {
+  const priorAttempt = await prisma.leadAssignment.findFirst({
+    where: { leadId, brokerId, attemptNumber: { lt: attemptNumber } },
+    select: { id: true },
+  });
+  return !priorAttempt;
+}
+
+/**
  * Notifica o corretor recém-atribuído por WhatsApp. Chamada sempre FORA da transação
  * (depois do commit) — nunca faz chamada de rede externa dentro de uma transação
  * interativa do Postgres. Best-effort: erros ficam só nos logs/audit_logs de whatsapp.ts,
  * nunca propagam para quem chamou (a atribuição já está gravada e vale independente
- * do WhatsApp ter saído ou não).
+ * do WhatsApp ter saído ou não). Só envia na primeira vez que este corretor vê este lead
+ * (ver isFirstAttemptForBroker) — evita flood em ciclos repetidos da roleta.
  */
 async function notifyAssignmentCreated(organizationId: string, assignment: LeadAssignment) {
   if (!(await hasActiveWhatsAppIntegration(organizationId))) return;
+  if (!(await isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber))) return;
 
   const [broker, lead, org] = await Promise.all([
     prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
@@ -154,9 +170,15 @@ async function notifyAssignmentCreated(organizationId: string, assignment: LeadA
   });
 }
 
-/** Avisa por WhatsApp o corretor que deixou o prazo esgotar sem responder (mesma regra de best-effort acima). */
+/**
+ * Avisa por WhatsApp o corretor que deixou o prazo esgotar sem responder (mesma regra de
+ * best-effort acima). Também só na primeira vez que este corretor vê este lead — se a
+ * roleta já tinha passado por ele antes (volta completa), ele já foi avisado uma vez sobre
+ * esse lead e não precisa levar um segundo "expirou" a cada nova volta.
+ */
 async function notifyAssignmentExpired(assignment: LeadAssignment) {
   if (!(await hasActiveWhatsAppIntegration(assignment.organizationId))) return;
+  if (!(await isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber))) return;
 
   const [broker, lead] = await Promise.all([
     prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
