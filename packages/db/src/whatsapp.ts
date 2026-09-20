@@ -25,6 +25,12 @@ export const WHATSAPP_TEMPLATES = {
     language: TEMPLATE_LANGUAGE,
     body: "Atenção {{1}}: o tempo para atender o lead {{2}} esgotou e ele foi transferido para o próximo corretor da fila.",
   },
+  RETURNED: {
+    name: "lead_retornou_corretor",
+    category: "UTILITY",
+    language: TEMPLATE_LANGUAGE,
+    body: "Atenção {{1}}! O lead {{2}} (telefone {{3}}) já passou por toda a equipe sem resposta e voltou para você. Você tem mais {{4}} minutos para entrar em contato.",
+  },
 } as const;
 
 function onlyDigits(value: string): string {
@@ -185,7 +191,13 @@ async function sendBestEffort(params: {
   }
 }
 
-/** Notifica o corretor por WhatsApp quando um lead é atribuído a ele (novo ou escalado). */
+/**
+ * Notifica o corretor por WhatsApp quando um lead é atribuído a ele. `isReturning` indica
+ * que este NÃO é a primeira vez que este corretor vê este lead — a roleta deu uma volta
+ * completa (ninguém respondeu) e voltou até ele de novo. Nesse caso usa um template
+ * diferente (RETURNED), avisando que o lead já passou pela equipe toda, em vez de repetir
+ * a mesma mensagem de "novo lead" a cada volta.
+ */
 export async function notifyBrokerNewAssignment(params: {
   organizationId: string;
   leadId: string;
@@ -194,12 +206,14 @@ export async function notifyBrokerNewAssignment(params: {
   leadName: string;
   leadPhone: string | null;
   timeoutMinutes: number;
+  isReturning: boolean;
 }) {
+  const template = params.isReturning ? WHATSAPP_TEMPLATES.RETURNED : WHATSAPP_TEMPLATES.NEW_ASSIGNMENT;
   await sendBestEffort({
     organizationId: params.organizationId,
     to: params.brokerPhone,
     leadId: params.leadId,
-    templateName: WHATSAPP_TEMPLATES.NEW_ASSIGNMENT.name,
+    templateName: template.name,
     bodyParams: [
       params.brokerName,
       params.leadName,

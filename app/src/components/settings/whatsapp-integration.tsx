@@ -82,7 +82,7 @@ export function WhatsAppIntegrationSettings() {
           <li>Cadastre/verifique um número de telefone da empresa (não pode ser um número já usado no app pessoal do WhatsApp).</li>
           <li>Gere um token de acesso com a permissão <code className="text-gold">whatsapp_business_messaging</code>.</li>
           <li>
-            Em <span className="text-foreground">WhatsApp Manager → Modelos de mensagem</span>, crie os dois templates
+            Em <span className="text-foreground">WhatsApp Manager → Modelos de mensagem</span>, crie os três templates
             abaixo (categoria Utilidade) e aguarde a aprovação da Meta antes de usar.
           </li>
         </ol>

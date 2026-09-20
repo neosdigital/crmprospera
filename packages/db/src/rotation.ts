@@ -145,17 +145,19 @@ async function isFirstAttemptForBroker(leadId: string, brokerId: string, attempt
  * (depois do commit) — nunca faz chamada de rede externa dentro de uma transação
  * interativa do Postgres. Best-effort: erros ficam só nos logs/audit_logs de whatsapp.ts,
  * nunca propagam para quem chamou (a atribuição já está gravada e vale independente
- * do WhatsApp ter saído ou não). Só envia na primeira vez que este corretor vê este lead
- * (ver isFirstAttemptForBroker) — evita flood em ciclos repetidos da roleta.
+ * do WhatsApp ter saído ou não). Se a roleta já tinha passado por este corretor antes
+ * (volta completa sem ninguém responder), envia o template RETURNED em vez do de "novo
+ * lead" — assim ele ainda é avisado a cada volta, mas com uma mensagem diferente, não um
+ * flood da mesma mensagem repetida (ver isFirstAttemptForBroker).
  */
 async function notifyAssignmentCreated(organizationId: string, assignment: LeadAssignment) {
   if (!(await hasActiveWhatsAppIntegration(organizationId))) return;
-  if (!(await isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber))) return;
 
-  const [broker, lead, org] = await Promise.all([
+  const [broker, lead, org, isFirst] = await Promise.all([
     prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
     prisma.lead.findUnique({ where: { id: assignment.leadId } }),
     prisma.organization.findUnique({ where: { id: organizationId } }),
+    isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber),
   ]);
   if (!broker || !lead || !org) return;
 
@@ -167,6 +169,7 @@ async function notifyAssignmentCreated(organizationId: string, assignment: LeadA
     leadName: lead.name,
     leadPhone: lead.phone,
     timeoutMinutes: org.responseTimeoutMinutes,
+    isReturning: !isFirst,
   });
 }
 

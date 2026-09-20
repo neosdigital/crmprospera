@@ -184,9 +184,11 @@ não foi assumido nada de versões antigas da API.
 
 Usa a **WhatsApp Cloud API** oficial da Meta (gratuita dentro do volume normal de uma operação
 pequena/média, sem risco de banimento de número — ao contrário de bibliotecas não-oficiais que
-imitam o WhatsApp Web). Duas mensagens automáticas por lead: (1) quando ele é atribuído a um
-corretor (novo ou escalado de outro que não respondeu), e (2) quando esse corretor deixa o
-prazo esgotar sem responder.
+imitam o WhatsApp Web). Três mensagens automáticas possíveis por lead: (1) quando ele é
+atribuído a um corretor pela primeira vez, (2) quando esse corretor deixa o prazo esgotar sem
+responder, e (3) se a roleta der uma volta completa sem ninguém responder e o lead voltar para
+um corretor que já tinha recebido esse mesmo lead antes — nesse caso é um template diferente
+("já passou pela equipe toda"), não uma repetição do aviso de "novo lead" a cada volta.
 
 1. **Reaproveite o app da Meta** já criado para os Leads (ou crie um novo em
    [developers.facebook.com/apps](https://developers.facebook.com/apps)) e adicione o produto
@@ -197,7 +199,7 @@ prazo esgotar sem responder.
    destinatários cadastrados como "número de teste"); para produção real, verifique um número
    próprio.
 3. **Templates de mensagem**: business-initiated fora da janela de 24h só pode usar templates
-   pré-aprovados. Em **WhatsApp Manager → Modelos de mensagem**, crie os dois abaixo (categoria
+   pré-aprovados. Em **WhatsApp Manager → Modelos de mensagem**, crie os três abaixo (categoria
    **Utilidade**, idioma **Português (BR)**) — os textos exatos também aparecem em
    `/settings/integrations/whatsapp`:
    - `novo_lead_atribuido`: "Olá {{1}}! Você recebeu um novo lead no CRM Próspera: {{2}},
@@ -205,6 +207,10 @@ prazo esgotar sem responder.
      próximo corretor."
    - `lead_expirado_corretor`: "Atenção {{1}}: o tempo para atender o lead {{2}} esgotou e ele
      foi transferido para o próximo corretor da fila."
+   - `lead_retornou_corretor`: "Atenção {{1}}! O lead {{2}} (telefone {{3}}) já passou por toda
+     a equipe sem resposta e voltou para você. Você tem mais {{4}} minutos para entrar em
+     contato." — enviado no lugar de `novo_lead_atribuido` quando a roleta já tinha passado por
+     esse corretor antes para o mesmo lead (evita repetir a mesma mensagem a cada volta).
    A aprovação pode levar de minutos a alguns dias; enquanto pendente, o envio falha e fica
    registrado em `audit_logs`/no campo "Último erro" da integração, sem travar a distribuição
    do lead (é best-effort).
