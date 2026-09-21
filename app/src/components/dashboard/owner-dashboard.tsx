@@ -46,7 +46,7 @@ function todayISO() {
 }
 
 function formatBR(iso: string) {
-  const [y, m, d] = iso.split("-");
+  const [, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
 

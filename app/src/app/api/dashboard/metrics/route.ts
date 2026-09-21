@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
-import { prisma } from "@crm/db";
 
 /** Resolve o período em { since, until }. "custom" usa from/to (datas ISO) vindos da query. */
 function resolvePeriod(url: URL): { period: string; since: Date; until: Date } {
