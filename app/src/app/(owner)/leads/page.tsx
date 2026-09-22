@@ -3,11 +3,11 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { scopedDb } from "@/lib/tenant-db";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
+import { LeadsTable, type LeadRow } from "@/components/leads/leads-table";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   NEW: "neutral",
@@ -50,6 +50,18 @@ export default async function LeadsPage({
     include: { currentBroker: { select: { displayName: true } } },
   });
 
+  const rows: LeadRow[] = leads.map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    phone: lead.phone,
+    campaignName: lead.campaignName,
+    brokerName: lead.currentBroker?.displayName ?? null,
+    status: lead.status,
+    statusLabel: leadStatusLabel(lead.status),
+    statusTone: STATUS_TONE[lead.status] ?? "neutral",
+    createdAtLabel: format(lead.createdAt, "dd/MM HH:mm"),
+  }));
+
   return (
     <div className="px-4 py-8 sm:px-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -88,40 +100,8 @@ export default async function LeadsPage({
         </Link>
       </form>
 
-      <Card className="mt-6 overflow-x-auto p-0">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead>
-            <tr className="border-b border-[color:var(--color-border-gold)] text-left text-xs uppercase text-text-secondary">
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">Telefone</th>
-              <th className="px-4 py-3">Campanha</th>
-              <th className="px-4 py-3">Corretor</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Recebido em</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leads.map((lead) => (
-              <tr key={lead.id} className="border-b border-[color:var(--color-border-gold)]/40 last:border-0 hover:bg-surface-2">
-                <td className="px-4 py-3">
-                  <Link href={`/leads/${lead.id}`} className="font-medium text-foreground hover:text-gold">
-                    {lead.name}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-text-secondary">{lead.phone ?? "—"}</td>
-                <td className="px-4 py-3 text-text-secondary">{lead.campaignName ?? "—"}</td>
-                <td className="px-4 py-3 text-text-secondary">{lead.currentBroker?.displayName ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={STATUS_TONE[lead.status] ?? "neutral"}>{leadStatusLabel(lead.status)}</Badge>
-                </td>
-                <td className="px-4 py-3 text-text-secondary">{format(lead.createdAt, "dd/MM HH:mm")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {leads.length === 0 && (
-          <p className="px-4 py-10 text-center text-text-secondary">Nenhum lead encontrado com esses filtros.</p>
-        )}
+      <Card className="mt-6 p-0">
+        <LeadsTable leads={rows} />
       </Card>
     </div>
   );

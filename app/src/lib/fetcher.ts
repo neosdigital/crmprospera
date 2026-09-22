@@ -42,3 +42,16 @@ export async function patcher<T = unknown>(url: string, body: unknown): Promise<
   }
   return info as T;
 }
+
+export async function deleter<T = unknown>(url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const info = await res.json().catch(() => undefined);
+  if (!res.ok) {
+    throw new FetchError((info as { error?: string })?.error ?? "Erro na requisição", res.status, info);
+  }
+  return info as T;
+}

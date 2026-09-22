@@ -117,3 +117,28 @@ export async function POST(req: Request) {
     return jsonError(error);
   }
 }
+
+const deleteBodySchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(500),
+});
+
+/**
+ * Exclusão manual de leads (botão "Remover leads" em /leads) — só dono/admin, nunca
+ * corretor. `scopedDb` garante que só apaga leads da própria organização mesmo que o
+ * body chegue com ids de fora (deleteMany injeta organizationId automaticamente).
+ * Cascata: lead_assignments some junto; audit_logs existentes ficam com lead_id nulo
+ * (histórico preservado, sem referenciar um lead inexistente).
+ */
+export async function DELETE(req: Request) {
+  try {
+    const session = await requireSession(["OWNER", "ADMIN"]);
+    const { ids } = deleteBodySchema.parse(await req.json());
+    const db = scopedDb(session.user.organizationId);
+
+    const result = await db.lead.deleteMany({ where: { id: { in: ids } } });
+
+    return NextResponse.json({ deletedCount: result.count });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
