@@ -132,3 +132,11 @@ META_TOKEN_ENCRYPTION_KEY=8157146c7938f26a1ba17cb99013114feaca5f08864adf7719f1c8
 9. Criar e aguardar aprovação dos 3 templates.
 10. Conectar em `/settings/integrations/whatsapp` e testar com "Testar com um número".
 11. Teste final ponta a ponta: lead real chega pela campanha → aparece em `/leads` → corretor #1 recebe WhatsApp → se não responder a tempo, escala e o próximo recebe.
+
+---
+
+## 5. Ajustes pendentes (registrado em 22/09/2026)
+
+- **Business Manager "Prospera" precisa ter mais de 7 dias de criada** para conseguir adicionar mais de 5 números de telefone de corretores no WhatsApp (hoje só dá pra cadastrar até 5 destinatários de teste).
+- **Aguardar a verificação de negócio da Meta ser aprovada** para o WhatsApp conseguir receber/entregar mensagens de verdade — hoje o envio retorna "accepted" pela API mas falha na entrega com erro 130497 ("Business account is restricted from messaging users in this country"), mesmo com número verificado na lista de teste.
+- **Conseguir um e-SIM** para usar como número real do robô/WhatsApp Business (em vez do número de teste sandbox da Meta, que é instável para entrega no Brasil).
