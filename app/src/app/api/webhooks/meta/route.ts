@@ -46,8 +46,34 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-hub-signature-256");
+  const signatureValid = verifyMetaSignature(rawBody, signature);
 
-  if (!verifyMetaSignature(rawBody, signature)) {
+  // Registro de diagnóstico best-effort: mesmo se a assinatura falhar, tentamos identificar
+  // a organização pelo page_id do payload (sem confiar nos dados ainda) só para deixar rastro
+  // no banco de que a Meta chamou o webhook — sem isso, "nada no banco" é ambíguo entre "a
+  // Meta nunca chamou" e "chamou e foi rejeitado por assinatura inválida", e não temos acesso
+  // aos logs de execução da Vercel para diferenciar.
+  try {
+    const maybePageId = JSON.parse(rawBody)?.entry?.[0]?.id;
+    if (maybePageId) {
+      const integration = await prisma.metaIntegration.findFirst({ where: { pageId: String(maybePageId) } });
+      if (integration) {
+        await prisma.auditLog.create({
+          data: {
+            organizationId: integration.organizationId,
+            action: AuditAction.WEBHOOK_RECEIVED,
+            entityType: "meta_integration",
+            entityId: integration.id,
+            metadata: { signatureValid, signaturePresent: Boolean(signature) },
+          },
+        });
+      }
+    }
+  } catch {
+    // best-effort — nunca deve impedir o fluxo principal
+  }
+
+  if (!signatureValid) {
     log("invalid_signature");
     return new NextResponse("Invalid signature", { status: 401 });
   }
