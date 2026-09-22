@@ -85,22 +85,75 @@ export async function POST(req: Request) {
     return new NextResponse("Invalid JSON", { status: 400 });
   }
 
-  if (payload.object !== "page") {
-    return NextResponse.json({ ok: true, skipped: "not_a_page_object" });
+  if (payload.object !== "page" && payload.object !== "whatsapp_business_account") {
+    return NextResponse.json({ ok: true, skipped: "unsupported_object" });
   }
 
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      if (change.field !== "leadgen") continue;
-      try {
-        await processLeadgenEvent(change.value);
-      } catch (error) {
-        log("process_event_error", { leadgenId: change.value.leadgen_id, error: String(error) });
+      if (change.field === "leadgen") {
+        try {
+          await processLeadgenEvent(change.value);
+        } catch (error) {
+          log("process_event_error", { leadgenId: change.value.leadgen_id, error: String(error) });
+        }
+      } else if (change.field === "messages") {
+        try {
+          await processMessageStatusEvent(change.value as unknown as WhatsAppStatusValue);
+        } catch (error) {
+          log("process_status_error", { error: String(error) });
+        }
       }
     }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+type WhatsAppStatusValue = {
+  metadata?: { phone_number_id?: string };
+  statuses?: {
+    id: string;
+    status: string;
+    recipient_id?: string;
+    errors?: { code: number; title: string; message?: string }[];
+  }[];
+};
+
+/**
+ * Status de entrega de mensagens do WhatsApp (sent/delivered/read/failed), enviados
+ * pela Meta quando o app está inscrito no campo "messages" da WABA. Registrado em
+ * AuditLog sem conteúdo de mensagem — só status, wamid e o erro estruturado da Meta,
+ * pra dar visibilidade real de "chegou ou não e por quê" sem depender dos logs da
+ * Vercel (que não temos acesso via dashboard aqui).
+ */
+async function processMessageStatusEvent(value: WhatsAppStatusValue) {
+  const phoneNumberId = value.metadata?.phone_number_id;
+  if (!phoneNumberId) return;
+
+  const integration = await prisma.whatsAppIntegration.findFirst({ where: { phoneNumberId } });
+  if (!integration) {
+    log("whatsapp_status_no_integration", { phoneNumberId });
+    return;
+  }
+
+  for (const status of value.statuses ?? []) {
+    const isFailed = status.status === "failed";
+    await prisma.auditLog.create({
+      data: {
+        organizationId: integration.organizationId,
+        action: isFailed ? AuditAction.WHATSAPP_FAILED : AuditAction.WHATSAPP_SENT,
+        entityType: "whatsapp_message",
+        entityId: status.id,
+        metadata: {
+          status: status.status,
+          recipientId: status.recipient_id,
+          errors: status.errors,
+        },
+      },
+    });
+    log("whatsapp_status", { wamid: status.id, status: status.status, errors: status.errors });
+  }
 }
 
 async function processLeadgenEvent(value: {

@@ -41,6 +41,13 @@ export type MetaWebhookPayload = {
   }[];
 };
 
+/**
+ * Payload de status de mensagens do WhatsApp (campo "messages" na WABA) — formato
+ * diferente do leadgen (payload.object é "whatsapp_business_account", não "page").
+ * A rota de webhook trata `change.value` como `unknown` nesse caso e faz o cast pro
+ * tipo específico, já que o mesmo endpoint recebe os dois formatos de payload.
+ */
+
 type FieldDatum = { name: string; values: string[] };
 
 export type MetaLeadDetails = {
