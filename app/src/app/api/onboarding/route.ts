@@ -48,7 +48,9 @@ export async function POST(req: Request) {
       const org = await tx.organization.create({
         data: { name: body.organizationName, slug },
       });
-      await tx.rotationState.create({ data: { organizationId: org.id, currentPosition: 1 } });
+      // currentPosition: 0 = "nenhum lead novo distribuído ainda" — o primeiro lead cai no
+      // corretor #1 (ver assignNextLead em packages/db/src/rotation.ts).
+      await tx.rotationState.create({ data: { organizationId: org.id, currentPosition: 0 } });
       await tx.user.create({
         data: {
           organizationId: org.id,

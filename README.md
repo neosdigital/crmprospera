@@ -1,8 +1,10 @@
 # CRM Prospera
 
 CRM multi-tenant para imobiliárias com distribuição automática de leads do Meta Lead Ads:
-webhook → ranking fixo de corretores (todo lead novo vai para o #1; só escala para o próximo
-se quem está acima não responder a tempo) → temporizador real controlado pelo servidor →
+webhook → roleta em round-robin entre os corretores (1º lead novo vai pro corretor #1, o
+2º pro #2, o 3º pro #3, e assim por diante — cada lead que expira sem resposta escala pro
+próximo colocado, mas isso não afeta pra onde o próximo lead NOVO vai) → temporizador real
+controlado pelo servidor →
 transferência automática se ninguém responder a tempo → aviso por WhatsApp ao corretor (novo
 lead e prazo esgotado) → dashboards em tempo (quase) real para dono e corretores.
 

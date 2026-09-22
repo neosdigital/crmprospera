@@ -41,12 +41,21 @@ async function pickNextBroker(tx: Tx, organizationId: string, afterPosition: num
 
 /**
  * Cria uma nova tentativa de atribuição (lead_assignment) para o próximo corretor elegível
- * e avança a escalação DESTE lead. Todo lead novo começa sempre no topo do ranking
- * (corretor #1); só avança para o colocado seguinte quando a tentativa anterior — PARA
- * ESTE MESMO LEAD — expirou sem resposta. Não existe mais um ponteiro global de "próximo
- * corretor" compartilhado entre leads: cada lead tem sua própria cadeia de escalação,
- * recalculada a partir do corretor da sua última tentativa (rotation_state.current_position
- * fica congelado, mantido só por compatibilidade de schema).
+ * e avança a escalação DESTE lead.
+ *
+ * Dois ponteiros diferentes decidem "próximo corretor", a depender do motivo da chamada:
+ * - Lead NOVO (primeira tentativa): usa o ponteiro GLOBAL da organização
+ *   (`rotation_state.current_position`) como ponto de partida, e o avança para a posição
+ *   do corretor escolhido. Isso faz o 1º lead ir pro corretor #1, o 2º pro #2, o 3º pro #3
+ *   etc., abastecendo todo mundo em ordem em vez de sempre começar do topo — critério de
+ *   justiça pedido explicitamente (leads novos não podem se acumular só no #1).
+ * - ESCALAÇÃO (tentativa anterior deste mesmo lead expirou sem resposta): usa a posição do
+ *   corretor da última tentativa DESTE lead, nunca o ponteiro global — cada lead mantém sua
+ *   própria cadeia de escalação a partir de onde ele começou, e escalar um lead não pode
+ *   "roubar" a vez de um lead novo que ainda vai chegar.
+ *
+ * Em ambos os casos, `pickNextBroker` aplica o mesmo wraparound (volta pro topo do ranking
+ * ao passar do último) e pula corretor pausado/inativo.
  *
  * Deve ser chamada dentro de uma transação que já tenha bloqueado (FOR UPDATE) a linha de
  * rotation_state da organização, para serializar atribuições concorrentes (seção 7 do escopo).
@@ -62,9 +71,13 @@ export async function assignNextLead(
     orderBy: { attemptNumber: "desc" },
   });
   const attemptNumber = (lastAttempt?.attemptNumber ?? 0) + 1;
+  const isNewLead = !lastAttempt;
 
   let afterPosition = 0;
-  if (lastAttempt) {
+  if (isNewLead) {
+    const rotationState = await tx.rotationState.findUnique({ where: { organizationId } });
+    afterPosition = rotationState?.currentPosition ?? 0;
+  } else {
     const lastBroker = await tx.broker.findUnique({
       where: { id: lastAttempt.brokerId },
       select: { rotationPosition: true },
@@ -90,6 +103,15 @@ export async function assignNextLead(
       },
     });
     return null;
+  }
+
+  // Só um lead NOVO avança o ponteiro global — escalação de um lead existente não deve
+  // afetar onde o próximo lead novo vai cair.
+  if (isNewLead) {
+    await tx.rotationState.update({
+      where: { organizationId },
+      data: { currentPosition: picked.broker.rotationPosition },
+    });
   }
 
   const now = new Date();

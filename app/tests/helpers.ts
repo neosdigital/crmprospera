@@ -24,7 +24,9 @@ export async function createTestOrg(opts: { brokerCount?: number; responseTimeou
     },
   });
 
-  await prisma.rotationState.create({ data: { organizationId: org.id, currentPosition: 1 } });
+  // currentPosition: 0 = "nenhum lead novo distribuído ainda" — o primeiro lead novo cai
+  // no corretor #1 (ver assignNextLead em packages/db/src/rotation.ts).
+  await prisma.rotationState.create({ data: { organizationId: org.id, currentPosition: 0 } });
 
   const passwordHash = await bcrypt.hash("test1234", 4);
   const brokers = [];

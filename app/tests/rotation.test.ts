@@ -185,31 +185,35 @@ describe("Motor de rotação — cenários críticos (seção 70/71 do escopo)",
     expect(updatedLead.status).toBe("WAITING_ASSIGNMENT");
   });
 
-  it("16. leads novos sempre vão para o primeiro do ranking (não é mais round-robin entre leads)", async () => {
+  it("16. leads novos são distribuídos em round-robin entre os corretores (1º→#1, 2º→#2, 3º→#3...)", async () => {
     const { org, brokers } = await createTestOrg({ brokerCount: 3 });
     cleanupIds.push(org.id);
     const leadA = await createTestLead(org.id, "Lead A");
     const leadB = await createTestLead(org.id, "Lead B");
     const leadC = await createTestLead(org.id, "Lead C");
+    const leadD = await createTestLead(org.id, "Lead D");
 
     const a1 = await distributeNewLead(org.id, leadA.id);
     const b1 = await distributeNewLead(org.id, leadB.id);
     const c1 = await distributeNewLead(org.id, leadC.id);
+    const d1 = await distributeNewLead(org.id, leadD.id);
 
-    // Os três são leads DIFERENTES e recém-criados: todos devem cair no corretor #1,
-    // mesmo tendo sido distribuídos em sequência.
+    // Cada lead NOVO vai pro próximo colocado da fila, não sempre pro #1 — 4 leads com
+    // 3 corretores: 1,2,3,1 (dá a volta e recomeça no topo).
     expect(a1!.brokerId).toBe(brokers[0].id);
-    expect(b1!.brokerId).toBe(brokers[0].id);
-    expect(c1!.brokerId).toBe(brokers[0].id);
+    expect(b1!.brokerId).toBe(brokers[1].id);
+    expect(c1!.brokerId).toBe(brokers[2].id);
+    expect(d1!.brokerId).toBe(brokers[0].id);
 
-    // O lead A expira e escala para o #2 — isso não deve afetar para onde um lead NOVO vai.
+    // O lead A expira e escala para o #2 (cadeia de escalação DESTE lead) — isso não pode
+    // "roubar a vez" do próximo lead novo, que continua de onde o ponteiro global parou.
     await prisma.leadAssignment.update({ where: { id: a1!.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     const expireResult = await expireAndRotate(a1!.id);
     expect(expireResult.nextAssignment?.brokerId).toBe(brokers[1].id);
 
-    const leadD = await createTestLead(org.id, "Lead D");
-    const d1 = await distributeNewLead(org.id, leadD.id);
-    expect(d1!.brokerId).toBe(brokers[0].id);
+    const leadE = await createTestLead(org.id, "Lead E");
+    const e1 = await distributeNewLead(org.id, leadE.id);
+    expect(e1!.brokerId).toBe(brokers[1].id);
   });
 
   it("Cenário da seção 71: João → Maria → Pedro, Pedro contata, ciclo interrompido em IN_PROGRESS", async () => {

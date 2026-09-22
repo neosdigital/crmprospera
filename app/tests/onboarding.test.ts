@@ -32,8 +32,10 @@ describe("Onboarding — criação de uma nova imobiliária (seção 79 do escop
     expect(user).not.toBeNull();
     expect(user!.role).toBe("OWNER");
 
+    // currentPosition começa em 0 ("nenhum lead novo distribuído ainda") — o primeiro
+    // lead novo desta organização cai no corretor #1 (ver assignNextLead).
     const rotationState = await prisma.rotationState.findUnique({ where: { organizationId: user!.organizationId } });
-    expect(rotationState?.currentPosition).toBe(1);
+    expect(rotationState?.currentPosition).toBe(0);
 
     // Segunda tentativa com o mesmo email deve ser rejeitada
     const req2 = new Request("http://localhost/api/onboarding", {

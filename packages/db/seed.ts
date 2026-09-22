@@ -50,7 +50,9 @@ async function main() {
     },
   });
 
-  await prisma.rotationState.create({ data: { organizationId: org.id, currentPosition: 1 } });
+  // currentPosition: 0 = "nenhum lead novo distribuído ainda" — o primeiro lead cai no
+  // corretor #1 (ver assignNextLead em packages/db/src/rotation.ts).
+  await prisma.rotationState.create({ data: { organizationId: org.id, currentPosition: 0 } });
 
   const ownerPasswordHash = await bcrypt.hash(OWNER.password, 10);
   const owner = await prisma.user.create({
