@@ -7,7 +7,7 @@ import { fetcher } from "@/lib/fetcher";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
-import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
+import { PushNotificationBanner } from "@/components/notifications/push-notification-banner";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { formatMetaFieldText } from "@/lib/format-text";
@@ -216,7 +216,7 @@ export function LiveView() {
 
   return (
     <div className="px-4 py-8 sm:px-8">
-      <NotificationPermissionBanner />
+      <PushNotificationBanner />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>

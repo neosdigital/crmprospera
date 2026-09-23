@@ -4,6 +4,8 @@ import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
 import { AuditAction, prisma, distributeNewLead } from "@crm/db";
 import type { Prisma } from "@crm/db";
+import { notifyNewLead } from "@/lib/push-server";
+import { runAfterResponse } from "@/lib/run-after-response";
 
 const listQuerySchema = z.object({
   status: z.string().optional(),
@@ -102,6 +104,15 @@ export async function POST(req: Request) {
     });
 
     const assignment = await distributeNewLead(session.user.organizationId, lead.id);
+
+    runAfterResponse(() =>
+      notifyNewLead({
+        id: lead.id,
+        organizationId: session.user.organizationId,
+        name: lead.name,
+        source: lead.source,
+      }).catch((error) => console.error("[push] falha ao notificar novo lead (manual)", error))
+    );
 
     return NextResponse.json(
       {

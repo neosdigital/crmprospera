@@ -7,7 +7,7 @@ import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
-import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
+import { PushNotificationBanner } from "@/components/notifications/push-notification-banner";
 import { formatMetaFieldText } from "@/lib/format-text";
 
 type LeadAssignment = {
@@ -188,7 +188,7 @@ export function BrokerDashboard({ brokerFirstName }: { brokerFirstName: string }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
-      <NotificationPermissionBanner />
+      <PushNotificationBanner />
       <h1 className="text-2xl font-semibold text-foreground">Olá, {brokerFirstName}.</h1>
       <p className="mt-1 text-text-secondary">
         {isLoading

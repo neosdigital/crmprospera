@@ -225,6 +225,71 @@ um corretor que já tinha recebido esse mesmo lead antes — nesse caso é um te
 7. **Testar**: use o campo "Testar com um número" na própria tela de configuração antes de
    depender de um lead real.
 
+## Notificações Push (avisa mesmo com o CRM fechado)
+
+Web Push de verdade (Service Worker + Push API + VAPID) — sem Firebase, sem OneSignal, sem
+custo. Avisa **todos os OWNER/ADMIN e todo corretor com `status = ACTIVE`** assim que um lead
+novo é criado (webhook do Meta ou criação manual), mesmo com a aba/app fechado, incluindo
+celular (Android e iPhone via PWA instalado) e PC.
+
+### O que foi criado
+
+- Tabela `push_subscriptions` (`packages/db/prisma/schema.prisma`) — um usuário pode ter várias
+  inscrições (uma por navegador/dispositivo). Migration: `add_push_subscriptions`.
+- `app/src/lib/push-server.ts` — `notifyNewLead(lead)` (chamada nos dois pontos reais de criação
+  de lead: `api/webhooks/meta` e `api/leads`, via `after()` do Next.js — não atrasa nem quebra a
+  resposta) e `sendTestPush(userId)`. Limpa sozinho inscrições que voltarem 404/410 (dispositivo
+  desinstalou/expirou); qualquer outro erro só fica registrado em `lastError`, nunca derruba o
+  envio dos demais.
+- `app/public/sw.js` (Service Worker) + `app/public/manifest.json` + ícones (`icon-192.png`,
+  `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png`, gerados a partir do símbolo
+  do logo da Próspera).
+- Rotas: `GET /api/push/vapid-public-key` (pública), `POST /api/push/subscribe`,
+  `POST /api/push/unsubscribe`, `GET /api/push/subscriptions`, `DELETE /api/push/subscriptions/:id`,
+  `POST /api/push/test` (só OWNER/ADMIN).
+- UI: banner "Ative as notificações" nos dois dashboards (substituiu o antigo, que só pedia
+  permissão da Notification API in-tab — este novo faz o fluxo completo de push de verdade) +
+  tela de gerenciamento em `/settings/notifications` (dono) e `/broker/profile` (corretor), com
+  lista de dispositivos, botão de desativar por dispositivo e botão de teste (admin).
+
+### Configurar as variáveis de ambiente
+
+```bash
+node -e "console.log(JSON.stringify(require('web-push').generateVAPIDKeys()))"
+```
+
+Adicione na Vercel (Production) e no `.env.local`:
+
+```
+VAPID_PUBLIC_KEY="..."
+VAPID_PRIVATE_KEY="..."
+VAPID_SUBJECT="mailto:seu-email@dominio.com"
+```
+
+`VAPID_SUBJECT` precisa ser uma URI `mailto:` ou `https:` válida — alguns serviços de push
+rejeitam a requisição sem isso. Só o app (Vercel) precisa dessas variáveis — o worker não envia
+push, só a Meta/WhatsApp.
+
+### Testar
+
+- **PC (Chrome/Edge)**: mais rápido pra iterar — abre o CRM, clica em "Ativar" no banner,
+  aceita a permissão do navegador, clica em "Enviar notificação de teste" (só aparece pra
+  OWNER/ADMIN) em `/settings/notifications`.
+- **Android (Chrome)**: mesmo fluxo, funciona direto no navegador — não precisa instalar como
+  PWA (embora instalar deixe a experiência mais parecida com um app nativo).
+- **iPhone**: **obrigatório instalar como PWA primeiro** — Safari só permite Web Push pra sites
+  adicionados à Tela de Início (iOS 16.4+), nunca numa aba comum. Toque em **Compartilhar** →
+  **"Adicionar à Tela de Início"**, abra o CRM a partir do ícone criado (não mais pelo Safari) e
+  só então ative as notificações. O banner/tela de configurações detecta automaticamente esse
+  estado e mostra a instrução certa.
+- **HTTPS é obrigatório em produção** (Vercel já serve tudo em HTTPS por padrão). Pra testar num
+  iPhone físico durante o desenvolvimento, `localhost` não basta — o celular batendo no seu PC
+  pela rede local não é um "contexto seguro" pro navegador; use um deploy de preview da Vercel
+  ou um túnel HTTPS (ngrok, Tailscale Funnel) em vez disso.
+- **Limitação conhecida**: na União Europeia, por causa do DMA, a Apple mudou o comportamento de
+  "Adicionar à Tela de Início" e Web Push pode não funcionar mesmo instalado. Não é relevante
+  pra operação da Próspera (Brasil), mas fica registrado caso o público mude no futuro.
+
 ## Segurança e RBAC
 
 - Roles: `OWNER`, `ADMIN`, `BROKER`. Middleware (`src/middleware.ts`) redireciona por role;

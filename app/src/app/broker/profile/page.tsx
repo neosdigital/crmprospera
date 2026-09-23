@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { scopedDb } from "@/lib/tenant-db";
 import { Card } from "@/components/ui/card";
 import { ProfileSoundToggle } from "@/components/broker/profile-sound-toggle";
+import { PushNotificationSettings } from "@/components/settings/push-notification-settings";
 
 export default async function BrokerProfilePage() {
   const session = await auth();
@@ -33,6 +34,11 @@ export default async function BrokerProfilePage() {
         </div>
         <ProfileSoundToggle initialValue={broker.soundEnabled} />
       </Card>
+
+      <div className="mt-6">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Notificações push</h2>
+        <PushNotificationSettings isAdmin={false} />
+      </div>
     </div>
   );
 }

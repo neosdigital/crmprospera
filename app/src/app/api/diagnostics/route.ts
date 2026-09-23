@@ -23,6 +23,9 @@ export async function GET(req: Request) {
     META_TOKEN_ENCRYPTION_KEY_present: Boolean(process.env.META_TOKEN_ENCRYPTION_KEY),
     META_TOKEN_ENCRYPTION_KEY_length: process.env.META_TOKEN_ENCRYPTION_KEY?.length ?? 0,
     CRON_SECRET: Boolean(process.env.CRON_SECRET),
+    VAPID_PUBLIC_KEY: Boolean(process.env.VAPID_PUBLIC_KEY),
+    VAPID_PRIVATE_KEY: Boolean(process.env.VAPID_PRIVATE_KEY),
+    VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? null,
   };
 
   let databaseOk = false;

@@ -68,6 +68,8 @@ enum AuditAction {
   AUTH_LOGIN_FAILED
   WHATSAPP_SENT
   WHATSAPP_FAILED
+  PUSH_SUBSCRIBED
+  PUSH_UNSUBSCRIBED
 }
 
 // ============================================================
@@ -90,6 +92,7 @@ model Organization {
   metaIntegrations    MetaIntegration[]
   whatsappIntegration WhatsAppIntegration?
   auditLogs           AuditLog[]
+  pushSubscriptions   PushSubscription[]
 
   @@map("organizations")
 }
@@ -105,9 +108,10 @@ model User {
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  broker       Broker?
-  auditLogs    AuditLog[]
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  broker            Broker?
+  auditLogs         AuditLog[]
+  pushSubscriptions PushSubscription[]
 
   @@index([organizationId])
   @@map("users")
@@ -258,6 +262,32 @@ model WhatsAppIntegration {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("whatsapp_integrations")
+}
+
+// ============================================================
+// WEB PUSH — notificações mesmo com o CRM fechado (PWA)
+// ============================================================
+
+model PushSubscription {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  userId         String    @map("user_id")
+  endpoint       String    @unique
+  p256dh         String
+  auth           String
+  userAgent      String?   @map("user_agent")
+  lastSuccessAt  DateTime? @map("last_success_at")
+  lastErrorAt    DateTime? @map("last_error_at")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 // ============================================================
