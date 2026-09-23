@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-alert";
 import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
+import { formatMetaFieldText } from "@/lib/format-text";
 
 type LeadAssignment = {
   id: string;
@@ -117,8 +118,8 @@ function LeadCard({ assignment, serverOffsetMs, onClaim }: { assignment: LeadAss
         <div className="mt-4 space-y-1.5 border-t border-[color:var(--color-border-gold)] pt-4">
           {customFieldsEntries.map(([q, a]) => (
             <p key={q} className="text-sm">
-              <span className="text-text-secondary">{q}: </span>
-              <span className="text-foreground">{String(a)}</span>
+              <span className="text-text-secondary">{formatMetaFieldText(q)}: </span>
+              <span className="text-foreground">{formatMetaFieldText(String(a))}</span>
             </p>
           ))}
         </div>

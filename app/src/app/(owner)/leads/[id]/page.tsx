@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { leadStatusLabel, assignmentStatusLabel } from "@/lib/labels";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
+import { formatMetaFieldText } from "@/lib/format-text";
 
 const AUDIT_LABEL: Record<string, string> = {
   LEAD_RECEIVED: "Lead recebido",
@@ -77,8 +78,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             <div className="mt-4 space-y-1.5 border-t border-[color:var(--color-border-gold)] pt-4">
               {Object.entries(lead.customFields as Record<string, unknown>).map(([q, a]) => (
                 <p key={q} className="text-sm">
-                  <span className="text-text-secondary">{q}: </span>
-                  {String(a)}
+                  <span className="text-text-secondary">{formatMetaFieldText(q)}: </span>
+                  {formatMetaFieldText(String(a))}
                 </p>
               ))}
             </div>

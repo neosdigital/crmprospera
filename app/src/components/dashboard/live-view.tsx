@@ -10,6 +10,7 @@ import { useNewItemAlert, showLeadNotification } from "@/hooks/use-new-item-aler
 import { NotificationPermissionBanner } from "@/components/notifications/notification-permission-banner";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
+import { formatMetaFieldText } from "@/lib/format-text";
 
 type LiveLead = {
   id: string;
@@ -92,6 +93,51 @@ function VisualTimer({ assignedAt, expiresAt, offsetMs }: { assignedAt: string |
   );
 }
 
+/**
+ * Resumo compacto do fluxo: mostra a contagem total + só os últimos 3 corretores que não
+ * atenderam a tempo mais o atual (4 nomes no máximo), com "..." indicando que o começo do
+ * fluxo foi omitido. Leads que dão muitas voltas (dezenas/centenas de tentativas) deixavam
+ * essa área do card ilegível mostrando a cadeia inteira — o fluxo completo continua acessível
+ * clicando em "Ver todo o fluxo".
+ */
+function BrokersPassedSummary({ count, names }: { count: number; names: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (count <= 1) {
+    return (
+      <div className="mt-3 flex items-center gap-1.5 text-xs text-text-secondary">
+        <Users size={12} />
+        Ainda no 1º corretor
+      </div>
+    );
+  }
+
+  const RECENT_COUNT = 4; // 3 que expiraram + o atual
+  const recent = names.slice(-RECENT_COUNT);
+  const truncated = names.length > RECENT_COUNT;
+
+  return (
+    <div className="mt-3 text-xs text-text-secondary">
+      <div className="flex items-center gap-1.5">
+        <Users size={12} />
+        <span>
+          Já passou por {count} corretores ({truncated ? "... → " : ""}
+          {recent.join(" → ")})
+        </span>
+      </div>
+      {truncated && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-gold underline underline-offset-2 hover:text-gold/80"
+        >
+          {expanded ? "Ocultar fluxo" : "Ver todo o fluxo"}
+        </button>
+      )}
+      {expanded && <p className="mt-1.5 break-words text-text-secondary">{names.join(" → ")}</p>}
+    </div>
+  );
+}
+
 function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
   const statusTone = lead.status === "ASSIGNED" ? "gold" : lead.status === "IN_PROGRESS" ? "success" : "neutral";
   const customFieldsEntries = Object.entries(lead.customFields ?? {});
@@ -126,19 +172,14 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
         <div className="mt-2 space-y-1 border-t border-[color:var(--color-border-gold)]/40 pt-2">
           {customFieldsEntries.map(([q, a]) => (
             <p key={q} className="text-xs">
-              <span className="text-text-secondary">{q}: </span>
-              <span className="text-foreground">{String(a)}</span>
+              <span className="text-text-secondary">{formatMetaFieldText(q)}: </span>
+              <span className="text-foreground">{formatMetaFieldText(String(a))}</span>
             </p>
           ))}
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-1.5 text-xs text-text-secondary">
-        <Users size={12} />
-        {lead.brokersPassedCount <= 1
-          ? "Ainda no 1º corretor"
-          : `Já passou por ${lead.brokersPassedCount} corretores (${lead.brokersPassedNames.join(" → ")})`}
-      </div>
+      <BrokersPassedSummary count={lead.brokersPassedCount} names={lead.brokersPassedNames} />
 
       {lead.status === "ASSIGNED" && lead.expiresAt ? (
         <VisualTimer assignedAt={lead.assignedAt} expiresAt={lead.expiresAt} offsetMs={offsetMs} />

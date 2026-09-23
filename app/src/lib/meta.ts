@@ -132,7 +132,7 @@ export function normalizeFieldData(fieldData: FieldDatum[] | undefined): Record<
   return result;
 }
 
-const NAME_KEYS = ["full_name", "nome", "name"];
+const NAME_KEYS = ["full_name", "nome_completo", "nome completo", "nome", "name"];
 const PHONE_KEYS = ["phone_number", "telefone", "phone"];
 const EMAIL_KEYS = ["email"];
 
