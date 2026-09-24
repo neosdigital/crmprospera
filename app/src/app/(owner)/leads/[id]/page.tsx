@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { leadStatusLabel, assignmentStatusLabel } from "@/lib/labels";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
+import { LeadAssignControl } from "@/components/leads/lead-assign-control";
 import { formatMetaFieldText } from "@/lib/format-text";
 
 const AUDIT_LABEL: Record<string, string> = {
@@ -39,6 +40,22 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   });
 
   if (!lead) notFound();
+
+  const brokers = await db.broker.findMany({
+    orderBy: { displayName: "asc" },
+    select: { id: true, displayName: true, status: true },
+  });
+  const brokerName = new Map(brokers.map((b) => [b.id, b.displayName]));
+
+  function auditLabel(action: string, metadata: unknown) {
+    const meta = (metadata ?? {}) as { manual?: boolean; returnedToRotation?: boolean; toBrokerId?: string | null };
+    if (action === "TRANSFERRED" && meta.manual) {
+      if (meta.returnedToRotation) return "Devolvido para a roleta pelo administrador";
+      const to = meta.toBrokerId ? brokerName.get(meta.toBrokerId) : null;
+      return to ? `Direcionado para ${to} pelo administrador` : "Direcionado pelo administrador";
+    }
+    return AUDIT_LABEL[action] ?? action;
+  }
 
   return (
     <div className="px-4 py-8 sm:px-8">
@@ -114,6 +131,14 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </div>
 
           <div className="mt-4 border-t border-[color:var(--color-border-gold)] pt-4">
+            <LeadAssignControl
+              leadId={lead.id}
+              currentBrokerId={lead.currentBrokerId}
+              brokers={brokers.filter((b) => b.status !== "INACTIVE")}
+            />
+          </div>
+
+          <div className="mt-4 border-t border-[color:var(--color-border-gold)] pt-4">
             <LeadNotesEditor leadId={lead.id} initialNotes={lead.notes} />
           </div>
         </Card>
@@ -124,7 +149,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             {lead.auditLogs.map((log) => (
               <li key={log.id} className="text-sm">
                 <p className="text-xs text-text-secondary">{format(log.createdAt, "dd/MM HH:mm:ss")}</p>
-                <p className="text-foreground">{AUDIT_LABEL[log.action] ?? log.action}</p>
+                <p className="text-foreground">{auditLabel(log.action, log.metadata)}</p>
               </li>
             ))}
             {lead.auditLogs.length === 0 && <li className="text-sm text-text-secondary">Sem eventos.</li>}

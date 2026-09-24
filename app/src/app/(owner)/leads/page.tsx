@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { LeadsTable, type LeadRow } from "@/components/leads/leads-table";
+import { AddLeadForm } from "@/components/leads/add-lead-form";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   NEW: "neutral",
@@ -44,12 +45,19 @@ export default async function LeadsPage({
     ];
   }
 
-  const leads = await db.lead.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: { currentBroker: { select: { displayName: true } } },
-  });
+  const [leads, brokers] = await Promise.all([
+    db.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { currentBroker: { select: { displayName: true } } },
+    }),
+    db.broker.findMany({
+      where: { status: { not: "INACTIVE" } },
+      orderBy: { displayName: "asc" },
+      select: { id: true, displayName: true, status: true },
+    }),
+  ]);
 
   const rows: LeadRow[] = leads.map((lead) => ({
     id: lead.id,
@@ -72,6 +80,10 @@ export default async function LeadsPage({
           <p className="mt-1 text-text-secondary">Todos os leads recebidos pela organização.</p>
         </div>
         <SendTestLeadButton />
+      </div>
+
+      <div className="mt-4">
+        <AddLeadForm brokers={brokers} />
       </div>
 
       <form className="mt-6 flex flex-col gap-3 sm:flex-row" method="get">

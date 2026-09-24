@@ -140,3 +140,36 @@ export async function sendTestPush(userId: string): Promise<{ sent: number }> {
   await Promise.allSettled(user.pushSubscriptions.map((sub) => sendToSubscription(sub, payload)));
   return { sent: user.pushSubscriptions.length };
 }
+
+/**
+ * Avisa SÓ o corretor que recebeu um lead direcionado manualmente pelo dono/admin (sem
+ * roleta). Mesmas regras de notifyNewLead: nunca lança e respeita o horário de silêncio.
+ */
+export async function notifyLeadAssignedToBroker(lead: { id: string; name: string }, brokerId: string): Promise<void> {
+  if (isQuietHours()) {
+    console.info("[push] horário de silêncio — notificação não enviada", { leadId: lead.id });
+    return;
+  }
+  if (!ensureConfigured()) return;
+
+  try {
+    const broker = await prisma.broker.findUnique({
+      where: { id: brokerId },
+      include: { user: { include: { pushSubscriptions: true } } },
+    });
+    if (!broker || broker.user.status !== "ACTIVE") return;
+
+    const payload: PushPayload = {
+      title: "Lead direcionado para você",
+      body: `${lead.name} foi adicionado à sua carteira.`,
+      url: "/broker/wallet",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: `lead-${lead.id}`,
+    };
+
+    await Promise.allSettled(broker.user.pushSubscriptions.map((sub) => sendToSubscription(sub, payload)));
+  } catch (error) {
+    console.error("[push] falha ao notificar lead direcionado", { leadId: lead.id, error: String(error) });
+  }
+}

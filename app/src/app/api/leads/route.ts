@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession, jsonError } from "@/lib/api";
+import { requireSession, jsonError, ApiError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
-import { AuditAction, prisma, distributeNewLead } from "@crm/db";
+import { AuditAction, prisma, distributeNewLead, assignLeadManually } from "@crm/db";
 import type { Prisma } from "@crm/db";
-import { notifyNewLead } from "@/lib/push-server";
+import { notifyNewLead, notifyLeadAssignedToBroker } from "@/lib/push-server";
 import { runAfterResponse } from "@/lib/run-after-response";
 
 const listQuerySchema = z.object({
@@ -71,13 +71,27 @@ const createLeadSchema = z.object({
   source: z.string().default("manual"),
   campaignName: z.string().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  notes: z.string().max(5000).optional(),
+  /** Vazio/ausente = distribui pela roleta. Com id = vai direto pra carteira desse corretor. */
+  brokerId: z.string().optional(),
 });
 
-/** Criação manual de lead (uso administrativo/teste). Leads reais chegam via /api/webhooks/meta. */
+/**
+ * Criação manual de lead — exclusiva de dono/admin (corretor nunca cria lead). Leads reais
+ * chegam via /api/webhooks/meta. Sem `brokerId` o lead entra na roleta normalmente; com
+ * `brokerId` vai direto pra carteira do corretor escolhido (ver assignLeadManually).
+ */
 export async function POST(req: Request) {
   try {
     const session = await requireSession(["OWNER", "ADMIN"]);
     const body = createLeadSchema.parse(await req.json());
+
+    if (body.brokerId) {
+      // Valida antes de criar, pra não sobrar um lead órfão se o corretor for inválido.
+      const broker = await scopedDb(session.user.organizationId).broker.findFirst({ where: { id: body.brokerId } });
+      if (!broker) throw new ApiError(404, "Corretor não encontrado.");
+      if (broker.status === "INACTIVE") throw new ApiError(409, "Este corretor está inativo.");
+    }
 
     const lead = await prisma.lead.create({
       data: {
@@ -88,6 +102,7 @@ export async function POST(req: Request) {
         source: body.source,
         campaignName: body.campaignName,
         customFields: (body.customFields ?? {}) as Prisma.InputJsonValue,
+        notes: body.notes?.trim() || undefined,
       },
     });
 
@@ -102,6 +117,18 @@ export async function POST(req: Request) {
         metadata: { createdManuallyBy: session.user.id },
       },
     });
+
+    if (body.brokerId) {
+      const { lead: assigned } = await assignLeadManually({
+        organizationId: session.user.organizationId,
+        leadId: lead.id,
+        brokerId: body.brokerId,
+        userId: session.user.id,
+      });
+      const brokerId = body.brokerId;
+      runAfterResponse(() => notifyLeadAssignedToBroker({ id: lead.id, name: lead.name }, brokerId));
+      return NextResponse.json({ lead: assigned, assignment: null }, { status: 201 });
+    }
 
     const assignment = await distributeNewLead(session.user.organizationId, lead.id);
 

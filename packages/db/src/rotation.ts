@@ -419,3 +419,133 @@ export async function sweepOrganizationExpirations(organizationId: string) {
     }
   }
 }
+
+export class ManualAssignError extends Error {
+  code: "NOT_FOUND" | "BROKER_NOT_FOUND" | "BROKER_INACTIVE";
+  constructor(code: "NOT_FOUND" | "BROKER_NOT_FOUND" | "BROKER_INACTIVE", message: string) {
+    super(message);
+    this.code = code;
+    this.name = "ManualAssignError";
+  }
+}
+
+// Status "de roleta": o lead ainda não está na carteira de ninguém. Direcionar manualmente um
+// lead nesses status coloca ele direto em IN_PROGRESS; se já estiver numa etapa do kanban
+// (qualificado, agendado, convertido, perdido), a etapa é mantida e só o corretor muda.
+const PRE_WALLET_STATUSES: LeadStatus[] = [
+  LeadStatus.NEW,
+  LeadStatus.WAITING_ASSIGNMENT,
+  LeadStatus.ASSIGNED,
+  LeadStatus.CONTACTED,
+  LeadStatus.EXPIRED,
+];
+
+/**
+ * Encerra a tentativa ativa (se houver) de um lead como TRANSFERRED, para o worker de
+ * expiração não rotacionar mais esse lead. Retorna o corretor da tentativa encerrada.
+ * Deve rodar dentro de uma transação com rotation_state da organização bloqueado.
+ */
+async function closeActiveAssignment(tx: Tx, organizationId: string, leadId: string) {
+  const rows = await tx.$queryRaw<{ id: string; broker_id: string }[]>`
+    SELECT id, broker_id FROM lead_assignments
+    WHERE lead_id = ${leadId} AND organization_id = ${organizationId} AND status = 'ASSIGNED'
+    FOR UPDATE
+  `;
+  if (rows.length === 0) return;
+  await tx.leadAssignment.updateMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    data: { status: AssignmentStatus.TRANSFERRED, responseType: "MANUAL_TRANSFER" },
+  });
+}
+
+/**
+ * Direcionamento manual pelo dono/admin: coloca o lead direto na carteira do corretor
+ * escolhido, sem cronômetro e sem passar pela roleta. Não cria lead_assignment (que
+ * representa uma tentativa com prazo da roleta e alimenta as métricas de tempo de
+ * resposta/taxa de resposta) — o vínculo fica em lead.current_broker_id e o histórico no
+ * audit_log (TRANSFERRED com manual: true). Se o lead estava com uma tentativa ativa na
+ * roleta, ela é encerrada como TRANSFERRED para o worker não mexer mais nele.
+ */
+export async function assignLeadManually(params: {
+  organizationId: string;
+  leadId: string;
+  brokerId: string;
+  userId: string;
+}) {
+  const { organizationId, leadId, brokerId, userId } = params;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM rotation_state WHERE organization_id = ${organizationId} FOR UPDATE`;
+
+    const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!lead) throw new ManualAssignError("NOT_FOUND", "Lead não encontrado.");
+
+    const broker = await tx.broker.findFirst({ where: { id: brokerId, organizationId } });
+    if (!broker) throw new ManualAssignError("BROKER_NOT_FOUND", "Corretor não encontrado.");
+    if (broker.status === "INACTIVE") {
+      throw new ManualAssignError("BROKER_INACTIVE", "Este corretor está inativo.");
+    }
+
+    await closeActiveAssignment(tx, organizationId, leadId);
+
+    const updated = await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        currentBrokerId: broker.id,
+        status: PRE_WALLET_STATUSES.includes(lead.status) ? LeadStatus.IN_PROGRESS : lead.status,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        leadId,
+        userId,
+        action: AuditAction.TRANSFERRED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: { manual: true, fromBrokerId: lead.currentBrokerId, toBrokerId: broker.id },
+      },
+    });
+
+    return { lead: updated, broker };
+  }, TX_OPTIONS);
+}
+
+/**
+ * "Devolver para a roleta": tira o lead de quem estiver com ele e dispara uma nova
+ * tentativa com prazo para o próximo corretor elegível (mesma regra de assignNextLead),
+ * com o aviso de WhatsApp de sempre.
+ */
+export async function returnLeadToRotation(params: { organizationId: string; leadId: string; userId: string }) {
+  const { organizationId, leadId, userId } = params;
+
+  const assignment = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM rotation_state WHERE organization_id = ${organizationId} FOR UPDATE`;
+
+    const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!lead) throw new ManualAssignError("NOT_FOUND", "Lead não encontrado.");
+
+    await closeActiveAssignment(tx, organizationId, leadId);
+
+    const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    const next = await assignNextLead(tx, { organizationId, leadId, timeoutMinutes: org.responseTimeoutMinutes });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        leadId,
+        userId,
+        action: AuditAction.TRANSFERRED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: { manual: true, returnedToRotation: true, fromBrokerId: lead.currentBrokerId, toBrokerId: next?.brokerId ?? null },
+      },
+    });
+
+    return next;
+  }, TX_OPTIONS);
+
+  if (assignment) await notifyAssignmentCreated(organizationId, assignment);
+  return assignment;
+}
