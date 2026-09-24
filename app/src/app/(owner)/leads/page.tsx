@@ -25,16 +25,17 @@ const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; status?: string }>;
+  searchParams: Promise<{ search?: string; status?: string; withNotes?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const { search, status } = await searchParams;
+  const { search, status, withNotes } = await searchParams;
   const db = scopedDb(session.user.organizationId);
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
+  if (withNotes) where.AND = [{ notes: { not: null } }, { notes: { not: "" } }];
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -56,6 +57,7 @@ export default async function LeadsPage({
     phone: lead.phone,
     campaignName: lead.campaignName,
     brokerName: lead.currentBroker?.displayName ?? null,
+    notes: lead.notes,
     status: lead.status,
     statusLabel: leadStatusLabel(lead.status),
     statusTone: STATUS_TONE[lead.status] ?? "neutral",
@@ -86,6 +88,10 @@ export default async function LeadsPage({
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-2 px-1 text-sm text-text-secondary">
+          <input type="checkbox" name="withNotes" value="1" defaultChecked={!!withNotes} className="h-4 w-4 accent-gold" />
+          Só com observação
+        </label>
         <button
           type="submit"
           className="rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-[#191919]"

@@ -3,7 +3,7 @@ import { scopedDb } from "@/lib/tenant-db";
 
 function csvEscape(value: unknown) {
   const s = value === null || value === undefined ? "" : String(value);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
@@ -34,9 +34,9 @@ export async function GET(req: Request) {
       include: { currentBroker: { select: { displayName: true } } },
     });
 
-    const header = ["Nome", "Telefone", "Email", "Campanha", "Corretor", "Status", "Recebido em"];
+    const header = ["Nome", "Telefone", "Email", "Campanha", "Corretor", "Status", "Observação", "Recebido em"];
     const rows = leads.map((l) =>
-      [l.name, l.phone, l.email, l.campaignName, l.currentBroker?.displayName, l.status, l.createdAt.toISOString()]
+      [l.name, l.phone, l.email, l.campaignName, l.currentBroker?.displayName, l.status, l.notes, l.createdAt.toISOString()]
         .map(csvEscape)
         .join(",")
     );

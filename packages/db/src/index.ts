@@ -15,3 +15,4 @@ export * from "@prisma/client";
 export * from "./rotation";
 export * from "./crypto";
 export * from "./whatsapp";
+export * from "./quiet-hours";

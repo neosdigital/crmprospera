@@ -1,6 +1,7 @@
 import { prisma } from "./index";
 import { AuditAction } from "@prisma/client";
 import { decryptSecret } from "./crypto";
+import { isQuietHours } from "./quiet-hours";
 
 const GRAPH_VERSION = process.env.META_GRAPH_API_VERSION || "v25.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -128,6 +129,8 @@ export async function sendTestMessage(organizationId: string, to: string, broker
  * configurada, token inválido, ou o número do corretor estiver vazio, apenas
  * registra (ou nem registra, se a integração não existir) e segue em frente,
  * para nunca travar a distribuição/expiração do lead por causa do WhatsApp.
+ * No horário de silêncio (23h–07h, ver quiet-hours.ts) a mensagem não é enviada — a
+ * atribuição/expiração segue normalmente, só o aviso é suprimido.
  */
 async function sendBestEffort(params: {
   organizationId: string;
@@ -137,6 +140,14 @@ async function sendBestEffort(params: {
   leadId?: string;
 }) {
   if (!params.to) return;
+  if (isQuietHours()) {
+    console.info("[whatsapp] horário de silêncio — mensagem não enviada", {
+      organizationId: params.organizationId,
+      leadId: params.leadId,
+      template: params.templateName,
+    });
+    return;
+  }
 
   const integration = await prisma.whatsAppIntegration.findUnique({
     where: { organizationId: params.organizationId },

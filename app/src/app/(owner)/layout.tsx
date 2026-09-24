@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { LayoutDashboard, Users2, RefreshCw, BarChart3, Plug, Settings, Radio, ListChecks, Bell } from "lucide-react";
+import { LayoutDashboard, Users2, RefreshCw, BarChart3, Plug, Settings, Radio, ListChecks, Bell, Kanban } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -11,6 +11,7 @@ const ICON_SIZE = 18;
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={ICON_SIZE} /> },
   { href: "/leads", label: "Leads", icon: <ListChecks size={ICON_SIZE} /> },
+  { href: "/kanban", label: "Kanban", icon: <Kanban size={ICON_SIZE} /> },
   { href: "/live", label: "Ao Vivo", icon: <Radio size={ICON_SIZE} /> },
   { href: "/settings/rotation", label: "Roleta", icon: <RefreshCw size={ICON_SIZE} /> },
   { href: "/settings/brokers", label: "Corretores", icon: <Users2 size={ICON_SIZE} /> },
