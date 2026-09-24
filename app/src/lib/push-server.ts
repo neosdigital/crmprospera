@@ -1,5 +1,5 @@
 import webpush, { WebPushError } from "web-push";
-import { prisma } from "@crm/db";
+import { prisma, isQuietHours } from "@crm/db";
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT;
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -73,6 +73,7 @@ async function sendToSubscription(
  * Notifica TODOS os admins/donos e corretores ativos da organização sobre um lead novo.
  * Nunca lança (chamado via `after()` nas rotas de criação de lead — não pode atrasar nem
  * quebrar a resposta). Cada inscrição é enviada em paralelo; falhas são isoladas por inscrição.
+ * No horário de silêncio (23h–07h, ver quiet-hours.ts) não envia nada — o lead segue na roleta normalmente.
  */
 export async function notifyNewLead(lead: {
   id: string;
@@ -80,6 +81,10 @@ export async function notifyNewLead(lead: {
   name: string;
   source: string;
 }): Promise<void> {
+  if (isQuietHours()) {
+    console.info("[push] horário de silêncio — notificação não enviada", { leadId: lead.id });
+    return;
+  }
   if (!ensureConfigured()) return;
 
   try {

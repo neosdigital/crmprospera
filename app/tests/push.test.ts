@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { prisma, Role } from "@crm/db";
 import { createTestOrg, cleanupTestOrg } from "./helpers";
 import { notifyNewLead, sendTestPush } from "../src/lib/push-server";
@@ -27,8 +27,16 @@ vi.mock("web-push", () => {
 const sendNotificationMock = vi.mocked(webpush.sendNotification);
 const FAKE_SEND_RESULT = { statusCode: 201, body: "", headers: {} };
 
+// Relógio fixo em horário comercial (15h em Brasília) — notifyNewLead não envia nada no
+// horário de silêncio (23h–07h), então sem isso os testes falhariam se rodados à noite.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-24T18:00:00Z"));
+});
+
 const cleanupIds: string[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   sendNotificationMock.mockReset();
   while (cleanupIds.length) {
     const id = cleanupIds.pop()!;
@@ -100,6 +108,20 @@ describe("Web Push — notifyNewLead", () => {
     await subscribe(org.id, brokerUser.id, "paused-broker-device");
 
     await notifyNewLead({ id: "lead_2", organizationId: org.id, name: "Lead X", source: "manual" });
+
+    expect(sendNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("não envia nada no horário de silêncio (23h–07h em Brasília)", async () => {
+    sendNotificationMock.mockResolvedValue(FAKE_SEND_RESULT);
+    vi.setSystemTime(new Date("2026-09-25T03:30:00Z")); // 00h30 em Brasília
+
+    const { org } = await createTestOrg({ brokerCount: 0 });
+    cleanupIds.push(org.id);
+    const owner = await createOwner(org.id, org.id);
+    await subscribe(org.id, owner.id, "night-device");
+
+    await notifyNewLead({ id: "lead_night", organizationId: org.id, name: "Lead Noturno", source: "manual" });
 
     expect(sendNotificationMock).not.toHaveBeenCalled();
   });
