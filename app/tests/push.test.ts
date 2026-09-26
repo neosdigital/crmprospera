@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { prisma, Role, distributeNewLead, expireAndRotate, returnLeadToRotation } from "@crm/db";
+import { prisma, Role, distributeNewLead, expireAndRotate, returnLeadToRotation, getNotificationHealth } from "@crm/db";
 import { createTestOrg, createTestLead, cleanupTestOrg } from "./helpers";
 import { notifyNewLead, sendTestPush } from "../src/lib/push-server";
 import webpush, { WebPushError } from "web-push";
@@ -35,9 +35,23 @@ process.env.VAPID_SUBJECT ??= "mailto:teste@example.com";
 process.env.VAPID_PUBLIC_KEY ??= "chave-publica-de-teste";
 process.env.VAPID_PRIVATE_KEY ??= "chave-privada-de-teste";
 
+/**
+ * Relógio falso SEMPRE no futuro (amanhã, no horário UTC pedido). Os testes rodam no mesmo
+ * Postgres em que o worker real do Railway fica varrendo `expires_at <= now()` a cada 15s:
+ * com um horário fixo no passado, toda tentativa criada aqui já nasceria "vencida" para o
+ * banco e o worker real a giraria antes do teste (falha intermitente). No futuro, o worker
+ * nunca encosta nas tentativas dos testes.
+ */
+function tomorrowAtUtc(hour: number, minute = 0) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCHours(hour, minute, 0, 0);
+  return d;
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-09-24T18:00:00Z"));
+  vi.setSystemTime(tomorrowAtUtc(18)); // 15h em Brasília
 });
 
 const cleanupIds: string[] = [];
@@ -128,7 +142,7 @@ describe("Web Push — notifyNewLead", () => {
 
   it("não envia nada no horário de silêncio (23h–07h em Brasília)", async () => {
     sendNotificationMock.mockResolvedValue(FAKE_SEND_RESULT);
-    vi.setSystemTime(new Date("2026-09-25T03:30:00Z")); // 00h30 em Brasília
+    vi.setSystemTime(tomorrowAtUtc(3, 30)); // 00h30 em Brasília
 
     const { org } = await createTestOrg({ brokerCount: 0 });
     cleanupIds.push(org.id);
@@ -271,7 +285,7 @@ describe("Web Push — aviso de vez na roleta (só para o corretor da vez)", () 
 
   it("no horário de silêncio a roleta gira normalmente, mas ninguém é notificado", async () => {
     const { org, brokers } = await setup();
-    vi.setSystemTime(new Date("2026-09-25T04:00:00Z")); // 01h em Brasília
+    vi.setSystemTime(tomorrowAtUtc(4)); // 01h em Brasília
     const lead = await createTestLead(org.id);
 
     const a1 = await distributeNewLead(org.id, lead.id);
@@ -280,5 +294,112 @@ describe("Web Push — aviso de vez na roleta (só para o corretor da vez)", () 
     expect(a1!.brokerId).toBe(brokers[0].id);
     expect(a2!.brokerId).toBe(brokers[1].id);
     expect(sendNotificationMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Monitoramento de entrega — nenhum aviso pode falhar em silêncio", () => {
+  async function setupOrg() {
+    sendNotificationMock.mockResolvedValue(FAKE_SEND_RESULT);
+    const { org, brokers } = await createTestOrg({ brokerCount: 2, responseTimeoutMinutes: 5 });
+    cleanupIds.push(org.id);
+    return { org, brokers };
+  }
+
+  it("envia com urgência alta e validade igual ao prazo, e registra PUSH_SENT por tentativa", async () => {
+    const { org, brokers } = await setupOrg();
+    await subscribe(org.id, (await brokerUserOf(brokers[0].id)).id, `dev-${brokers[0].id}`);
+    const lead = await createTestLead(org.id);
+
+    const a1 = await distributeNewLead(org.id, lead.id);
+
+    const [, , options] = sendNotificationMock.mock.calls[0];
+    expect(options).toMatchObject({ urgency: "high", TTL: 300 });
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { entityType: "push_turn", entityId: a1!.id } });
+    expect(log.action).toBe("PUSH_SENT");
+    expect(log.metadata).toMatchObject({ outcome: "sent", delivered: 1, brokerId: brokers[0].id });
+  });
+
+  it("sem chaves VAPID: registra PUSH_FAILED not_configured com o processo, e o alerta do dono acusa", async () => {
+    const { org, brokers } = await setupOrg();
+    await subscribe(org.id, (await brokerUserOf(brokers[0].id)).id, `dev-${brokers[0].id}`);
+    await subscribe(org.id, (await brokerUserOf(brokers[1].id)).id, `dev-${brokers[1].id}`);
+    const lead = await createTestLead(org.id);
+
+    // Simula o worker do Railway sem as variáveis — o cenário do incidente de 26/09.
+    vi.resetModules();
+    const saved = { ...process.env };
+    delete process.env.VAPID_PUBLIC_KEY;
+    process.env.CRM_PROCESS_NAME = "worker";
+    try {
+      const fresh = await import("@crm/db");
+      await fresh.distributeNewLead(org.id, lead.id);
+    } finally {
+      process.env.VAPID_PUBLIC_KEY = saved.VAPID_PUBLIC_KEY;
+      process.env.CRM_PROCESS_NAME = saved.CRM_PROCESS_NAME;
+      if (saved.CRM_PROCESS_NAME === undefined) delete process.env.CRM_PROCESS_NAME;
+    }
+
+    expect(sendNotificationMock).not.toHaveBeenCalled();
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { organizationId: org.id, entityType: "push_turn" } });
+    expect(log.action).toBe("PUSH_FAILED");
+    expect(log.metadata).toMatchObject({ outcome: "not_configured", process: "worker" });
+
+    // O banco grava createdAt com a hora REAL (default now() do Prisma), então o alerta
+    // precisa ser consultado no relógio real, não no falso do futuro.
+    vi.useRealTimers();
+    const issues = await getNotificationHealth(org.id);
+    expect(issues.some((i) => i.severity === "critical" && i.detail.includes("chaves de push") && i.detail.includes("worker"))).toBe(true);
+  });
+
+  it("passagem da roleta sem registro de aviso (worker com código antigo) aparece como crítica", async () => {
+    const { org, brokers } = await setupOrg();
+    const lead = await createTestLead(org.id);
+    // Tentativa criada "por fora", como um processo antigo faria: sem nenhum registro de push.
+    await prisma.leadAssignment.create({
+      data: {
+        organizationId: org.id,
+        leadId: lead.id,
+        brokerId: brokers[0].id,
+        attemptNumber: 1,
+        assignedAt: new Date(Date.now() - 5 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 1000),
+      },
+    });
+
+    const issues = await getNotificationHealth(org.id);
+    expect(issues.some((i) => i.severity === "critical" && i.title.includes("sem aviso"))).toBe(true);
+  });
+
+  it("acusa roleta travada e corretor sem aparelho inscrito", async () => {
+    const { org, brokers } = await setupOrg();
+    const lead = await createTestLead(org.id);
+    await prisma.leadAssignment.create({
+      data: {
+        organizationId: org.id,
+        leadId: lead.id,
+        brokerId: brokers[0].id,
+        attemptNumber: 1,
+        assignedAt: new Date(Date.now() - 20 * 60 * 1000),
+        expiresAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    });
+
+    const issues = await getNotificationHealth(org.id);
+    expect(issues.some((i) => i.title === "A roleta está travada")).toBe(true);
+    expect(issues.some((i) => i.title.includes("sem notificação ativada") && i.detail.includes("Broker1"))).toBe(true);
+  });
+
+  it("organização saudável não mostra alerta nenhum", async () => {
+    const { org, brokers } = await setupOrg();
+    for (const b of brokers) await subscribe(org.id, (await brokerUserOf(b.id)).id, `dev-${b.id}`);
+    const lead = await createTestLead(org.id);
+    const a1 = await distributeNewLead(org.id, lead.id);
+    // "Envelhece" a tentativa pra entrar na janela checada (>= 2 min), mantendo o prazo em aberto.
+    await prisma.leadAssignment.update({
+      where: { id: a1!.id },
+      data: { assignedAt: new Date(Date.now() - 3 * 60 * 1000), expiresAt: new Date(Date.now() + 60 * 1000) },
+    });
+
+    expect(await getNotificationHealth(org.id)).toEqual([]);
   });
 });

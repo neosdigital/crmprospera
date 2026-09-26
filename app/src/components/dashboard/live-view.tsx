@@ -107,7 +107,7 @@ function BrokersPassedSummary({ count, names }: { count: number; names: string[]
     return (
       <div className="mt-3 flex items-center gap-1.5 text-xs text-text-secondary">
         <Users size={12} />
-        Ainda no 1º corretor
+        Ainda no 1º corretor{names[0] ? ` (${names[0]})` : ""}
       </div>
     );
   }
@@ -192,7 +192,13 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
   );
 }
 
-export function LiveView() {
+/**
+ * `mode="broker"`: versão do corretor (/broker/live) — só leitura, sem o botão de lead
+ * fictício e SEM som/notificação de navegador para leads novos: o corretor só é avisado
+ * quando o lead cai na vez dele (push da roleta), nunca por lead que está com outro.
+ */
+export function LiveView({ mode = "owner" }: { mode?: "owner" | "broker" }) {
+  const isBroker = mode === "broker";
   const { data, mutate } = useSWR<LiveResponse>("/api/dashboard/live", fetcher, { refreshInterval: 2500 });
 
   const [offsetMs, setOffsetMs] = useState(0);
@@ -207,6 +213,7 @@ export function LiveView() {
   useNewItemAlert(
     activeLeads.map((l) => l.id),
     {
+      enabled: !isBroker,
       notify: (newIds) => {
         const first = activeLeads.find((l) => newIds.includes(l.id));
         if (first) showLeadNotification("Novo lead recebido", `${first.name} entrou na roleta de atendimento.`);
@@ -222,7 +229,7 @@ export function LiveView() {
           <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>
           <p className="mt-1 text-text-secondary">Acompanhe em tempo real onde cada lead está agora.</p>
         </div>
-        <SendTestLeadButton onSent={() => mutate()} />
+        {!isBroker && <SendTestLeadButton onSent={() => mutate()} />}
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

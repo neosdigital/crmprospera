@@ -1,5 +1,10 @@
 import cron from "node-cron";
-import { findExpiredAssignmentIds, expireAndRotate, prisma } from "@crm/db";
+
+// Identifica este processo nos registros de envio de push (audit_log PUSH_SENT/PUSH_FAILED),
+// pra o alerta do painel conseguir dizer "o WORKER está sem as chaves", e não só "falhou".
+process.env.CRM_PROCESS_NAME = "worker";
+
+import { findExpiredAssignmentIds, expireAndRotate, prisma, isPushConfigured } from "@crm/db";
 
 const intervalSeconds = Number(process.env.EXPIRATION_CHECK_INTERVAL_SECONDS ?? 15);
 
@@ -39,7 +44,19 @@ async function sweep() {
 // então convertemos o intervalo em "*/N * * * * *" (segundos) quando N < 60.
 const cronExpression = intervalSeconds < 60 ? `*/${intervalSeconds} * * * * *` : `*/${Math.round(intervalSeconds / 60)} * * * *`;
 
-log("worker_started", { intervalSeconds, cronExpression });
+log("worker_started", {
+  intervalSeconds,
+  cronExpression,
+  pushConfigured: isPushConfigured(),
+  commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+});
+if (!isPushConfigured()) {
+  // Sem as chaves, TODA passagem da roleta feita por este worker sai sem aviso pro corretor.
+  // O painel do dono também mostra isso (alerta de notificações), mas deixa gritante no log.
+  log("PUSH_NOT_CONFIGURED", {
+    error: "VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT ausentes — corretores NÃO serão notificados nas passagens da roleta",
+  });
+}
 
 cron.schedule(cronExpression, () => {
   sweep().catch((error) => log("sweep_fatal_error", { error: String(error) }));

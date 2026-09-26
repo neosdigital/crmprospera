@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { DragEvent } from "react";
 import useSWR from "swr";
-import { Phone, MessageCircle } from "lucide-react";
+import { Phone, MessageCircle, ArrowRightLeft, Check, X } from "lucide-react";
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,16 +39,81 @@ function whatsappLink(phone: string | null) {
   return `https://wa.me/${digits}`;
 }
 
+/**
+ * Telinha de "Mudar Status": alternativa ao arrastar (que não funciona bem no celular) —
+ * lista as colunas do kanban e move o lead para a escolhida.
+ */
+function ChangeStatusDialog({
+  lead,
+  onClose,
+  onSelect,
+}: {
+  lead: WalletLead;
+  onClose: () => void;
+  onSelect: (status: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Mudar status de ${lead.name}`}
+        className="w-full max-w-sm rounded-2xl border border-[color:var(--color-border-gold)] bg-surface p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-foreground">Mudar status</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-2"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <p className="mt-0.5 truncate text-xs text-text-secondary">{lead.name}</p>
+
+        <div className="mt-3 space-y-1.5">
+          {COLUMNS.map((col) => {
+            const current = col.status === lead.status;
+            return (
+              <button
+                key={col.status}
+                type="button"
+                disabled={current}
+                onClick={() => onSelect(col.status)}
+                className={[
+                  "flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors",
+                  current
+                    ? "border-[color:var(--color-border-gold-strong)] bg-gold-soft text-foreground"
+                    : "border-[color:var(--color-border-gold)] bg-surface-2 text-foreground hover:border-[color:var(--color-border-gold-strong)]",
+                ].join(" ")}
+              >
+                {col.label}
+                {current && <Check size={15} className="text-gold" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KanbanCard({
   lead,
   onDragStart,
   onSaved,
+  onMove,
 }: {
   lead: WalletLead;
   onDragStart: (e: DragEvent<HTMLDivElement>, leadId: string) => void;
   onSaved: () => void;
+  onMove: (leadId: string, status: string) => void;
 }) {
   const wa = whatsappLink(lead.phone);
+  const [changingStatus, setChangingStatus] = useState(false);
 
   return (
     <div
@@ -85,7 +150,22 @@ function KanbanCard({
             </Button>
           </a>
         )}
+        <Button variant="secondary" className="w-full py-1.5 text-xs" onClick={() => setChangingStatus(true)}>
+          <ArrowRightLeft size={13} />
+          Mudar Status
+        </Button>
       </div>
+
+      {changingStatus && (
+        <ChangeStatusDialog
+          lead={lead}
+          onClose={() => setChangingStatus(false)}
+          onSelect={(status) => {
+            setChangingStatus(false);
+            onMove(lead.id, status);
+          }}
+        />
+      )}
 
       <div className="mt-3 border-t border-[color:var(--color-border-gold)]/40 pt-3">
         <LeadNotesEditor leadId={lead.id} initialNotes={lead.notes} onSaved={onSaved} compact />
@@ -115,7 +195,11 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
   async function handleDrop(e: DragEvent<HTMLDivElement>, targetStatus: string) {
     e.preventDefault();
     setDragOverStatus(null);
-    const leadId = e.dataTransfer.getData("text/plain");
+    await moveLead(e.dataTransfer.getData("text/plain"), targetStatus);
+  }
+
+  /** Usado tanto pelo arrastar quanto pelo botão "Mudar Status". */
+  async function moveLead(leadId: string, targetStatus: string) {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === targetStatus) return;
 
@@ -166,7 +250,13 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
                 </div>
                 <div className="space-y-2">
                   {columnLeads.map((lead) => (
-                    <KanbanCard key={lead.id} lead={lead} onDragStart={handleDragStart} onSaved={() => mutate()} />
+                    <KanbanCard
+                      key={lead.id}
+                      lead={lead}
+                      onDragStart={handleDragStart}
+                      onSaved={() => mutate()}
+                      onMove={moveLead}
+                    />
                   ))}
                   {columnLeads.length === 0 && (
                     <p className="px-1 py-6 text-center text-xs text-text-secondary">Nenhum lead aqui.</p>

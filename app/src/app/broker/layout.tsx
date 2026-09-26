@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { LayoutDashboard, History, User, Kanban } from "lucide-react";
+import { LayoutDashboard, History, User, Kanban, Radio } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -11,6 +11,7 @@ const ICON_SIZE = 18;
 const ITEMS = [
   { href: "/broker/dashboard", label: "Dashboard", icon: <LayoutDashboard size={ICON_SIZE} /> },
   { href: "/broker/wallet", label: "Minha Carteira", icon: <Kanban size={ICON_SIZE} /> },
+  { href: "/broker/live", label: "Ao Vivo", icon: <Radio size={ICON_SIZE} /> },
   { href: "/broker/history", label: "Histórico", icon: <History size={ICON_SIZE} /> },
   { href: "/broker/profile", label: "Meu Perfil", icon: <User size={ICON_SIZE} /> },
 ];

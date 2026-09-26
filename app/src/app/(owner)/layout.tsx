@@ -5,6 +5,7 @@ import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { SignOutButton } from "@/components/layout/sign-out-button";
+import { NotificationHealthBanner } from "@/components/notifications/notification-health-banner";
 
 const ICON_SIZE = 18;
 
@@ -36,7 +37,10 @@ export default async function OwnerLayout({ children }: { children: React.ReactN
         signOutSlot={<SignOutButton />}
       />
       <Sidebar items={ITEMS} orgName={org?.name ?? ""} userName={session.user.name ?? ""} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto">
+        <NotificationHealthBanner />
+        {children}
+      </main>
     </div>
   );
 }

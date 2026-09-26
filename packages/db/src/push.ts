@@ -1,4 +1,5 @@
 import webpush, { WebPushError } from "web-push";
+import { AuditAction } from "@prisma/client";
 import { prisma } from "./index";
 import { isQuietHours } from "./quiet-hours";
 
@@ -8,17 +9,32 @@ import { isQuietHours } from "./quiet-hours";
  * o worker (Railway), via expireAndRotate. Assim o aviso "sua vez" sai de qualquer processo
  * que crie uma atribuição. Os dois (app na Vercel e worker no Railway) precisam das mesmas
  * variáveis VAPID_* configuradas.
+ *
+ * Todo aviso de vez grava o resultado no audit_log (PUSH_SENT / PUSH_FAILED, entityId = id da
+ * tentativa). É isso que alimenta o alerta de "notificações com problema" do painel do dono
+ * (ver notification-health.ts) — se um processo parar de notificar (sem chaves, código
+ * antigo, aparelho descadastrado), o dono fica sabendo em minutos, não pelos corretores.
  */
+
+/** Qual processo está rodando ("worker" no Railway, "app" na Vercel) — vai no registro de cada envio. */
+function processName() {
+  return process.env.CRM_PROCESS_NAME ?? "app";
+}
+
+export function isPushConfigured(): boolean {
+  const { VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = process.env;
+  return Boolean(VAPID_SUBJECT && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+}
 
 let configured = false;
 function ensureConfigured(): boolean {
   if (configured) return true;
-  const { VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = process.env;
-  if (!VAPID_SUBJECT || !VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    console.error("[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT ausentes — push desativado.");
+  if (!isPushConfigured()) {
+    console.error(`[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT ausentes no processo "${processName()}" — push desativado.`);
     return false;
   }
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  const { VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = process.env;
+  webpush.setVapidDetails(VAPID_SUBJECT!, VAPID_PUBLIC_KEY!, VAPID_PRIVATE_KEY!);
   configured = true;
   return true;
 }
@@ -43,6 +59,11 @@ type PushPayload = {
   tag?: string;
 };
 
+type SendOptions = {
+  /** Segundos que o serviço de push guarda a mensagem se o aparelho estiver offline. */
+  ttlSeconds?: number;
+};
+
 /**
  * Tag da notificação de "sua vez" de um lead. Mesma tag a cada volta da roleta: no aparelho
  * do corretor, a notificação nova SUBSTITUI a anterior desse mesmo lead (e o sw.js usa
@@ -53,45 +74,65 @@ function turnTag(leadId: string) {
 }
 
 /**
- * Envia um payload para UMA inscrição. Nunca lança: erros de subscription morta (404/410)
- * apagam a linha; qualquer outro erro (rede, subscription temporariamente inválida) só
- * atualiza lastError/lastErrorAt pra dar visibilidade sem derrubar o restante do envio.
+ * Envia um payload para UMA inscrição e diz se o serviço de push aceitou. Nunca lança:
+ * erros de subscription morta (404/410) apagam a linha; qualquer outro erro (rede,
+ * subscription temporariamente inválida) só atualiza lastError/lastErrorAt.
+ *
+ * `urgency: "high"` é essencial: sem isso o Android (modo soneca) pode segurar a notificação
+ * até o celular ser desbloqueado — e o corretor perde o prazo da roleta.
  */
 async function sendToSubscription(
   subscription: { id: string; endpoint: string; p256dh: string; auth: string },
-  payload: PushPayload
-) {
+  payload: PushPayload,
+  options: SendOptions = {}
+): Promise<{ ok: boolean; error?: string }> {
   try {
     await webpush.sendNotification(
       { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-      JSON.stringify(payload)
+      JSON.stringify(payload),
+      { urgency: "high", TTL: options.ttlSeconds ?? 24 * 60 * 60 }
     );
     await prisma.pushSubscription.update({
       where: { id: subscription.id },
       data: { lastSuccessAt: new Date(), lastError: null, lastErrorAt: null },
     });
+    return { ok: true };
   } catch (error) {
     if (error instanceof WebPushError && (error.statusCode === 404 || error.statusCode === 410)) {
       // Inscrição não existe mais no navegador (desinstalou, limpou dados, etc.) — remove.
       await prisma.pushSubscription.delete({ where: { id: subscription.id } }).catch(() => {});
-      return;
+      return { ok: false, error: "inscrição expirada (removida)" };
     }
     const message = error instanceof Error ? error.message : String(error);
     console.error("[push] falha ao enviar notificação", { subscriptionId: subscription.id, error: message });
     await prisma.pushSubscription
       .update({ where: { id: subscription.id }, data: { lastError: message, lastErrorAt: new Date() } })
       .catch(() => {});
+    return { ok: false, error: message };
   }
 }
 
-/** Manda o payload para todos os aparelhos inscritos de UM corretor (se o usuário dele estiver ativo). */
-async function sendToBroker(brokerId: string, payload: PushPayload) {
+type BrokerSendResult =
+  | { outcome: "sent"; devices: number; delivered: number }
+  | { outcome: "no_devices" | "all_failed" | "broker_inactive"; devices: number; delivered: 0; errors?: string[] };
+
+/** Manda o payload para todos os aparelhos inscritos de UM corretor. */
+async function sendToBroker(brokerId: string, payload: PushPayload, options: SendOptions = {}): Promise<BrokerSendResult> {
   const broker = await prisma.broker.findUnique({
     where: { id: brokerId },
     include: { user: { include: { pushSubscriptions: true } } },
   });
-  if (!broker || broker.user.status !== "ACTIVE") return;
-  await Promise.allSettled(broker.user.pushSubscriptions.map((sub) => sendToSubscription(sub, payload)));
+  if (!broker || broker.user.status !== "ACTIVE") return { outcome: "broker_inactive", devices: 0, delivered: 0 };
+
+  const subs = broker.user.pushSubscriptions;
+  if (subs.length === 0) return { outcome: "no_devices", devices: 0, delivered: 0 };
+
+  const results = await Promise.all(subs.map((sub) => sendToSubscription(sub, payload, options)));
+  const delivered = results.filter((r) => r.ok).length;
+  if (delivered === 0) {
+    return { outcome: "all_failed", devices: subs.length, delivered: 0, errors: results.map((r) => r.error ?? "?") };
+  }
+  return { outcome: "sent", devices: subs.length, delivered };
 }
 
 /**
@@ -144,9 +185,16 @@ export async function notifyNewLead(lead: {
  * tentativa (lead novo, prazo do anterior venceu, volta completa, devolvido para a roleta).
  * Na primeira vez que o corretor vê o lead: "Novo lead na sua vez"; nas voltas seguintes:
  * "está na sua vez na roleta novamente". A notificação substitui a anterior do mesmo lead
- * (ver turnTag). Nunca lança. No horário de silêncio (23h–07h) não envia nada.
+ * (ver turnTag). Nunca lança. No horário de silêncio (23h–07h) não envia nada (e não registra:
+ * silêncio é intencional, não falha).
+ *
+ * Fora do silêncio, SEMPRE grava o resultado no audit_log (PUSH_SENT ou PUSH_FAILED com o
+ * motivo) — inclusive quando o processo está sem as chaves VAPID, que é exatamente o caso
+ * que precisa aparecer no alerta do dono.
  */
 export async function notifyBrokerTurnPush(params: {
+  organizationId: string;
+  assignmentId: string;
   leadId: string;
   leadName: string;
   brokerId: string;
@@ -157,21 +205,54 @@ export async function notifyBrokerTurnPush(params: {
     console.info("[push] horário de silêncio — notificação não enviada", { leadId: params.leadId });
     return;
   }
-  if (!ensureConfigured()) return;
 
-  try {
-    await sendToBroker(params.brokerId, {
-      title: params.isReturning ? "Sua vez na roleta novamente" : "Novo lead na sua vez!",
-      body: params.isReturning
-        ? `O lead ${params.leadName} está na sua vez na roleta novamente. Você tem ${params.timeoutMinutes} min para entrar em contato.`
-        : `O lead ${params.leadName} está na sua vez na roleta. Você tem ${params.timeoutMinutes} min para entrar em contato.`,
-      url: "/broker/dashboard",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      tag: turnTag(params.leadId),
-    });
-  } catch (error) {
-    console.error("[push] falha ao notificar vez do corretor", { leadId: params.leadId, error: String(error) });
+  let result: BrokerSendResult | { outcome: "not_configured" | "error"; devices: 0; delivered: 0; errors?: string[] };
+  if (!ensureConfigured()) {
+    result = { outcome: "not_configured", devices: 0, delivered: 0 };
+  } else {
+    try {
+      result = await sendToBroker(
+        params.brokerId,
+        {
+          title: params.isReturning ? "Sua vez na roleta novamente" : "Novo lead na sua vez!",
+          body: params.isReturning
+            ? `O lead ${params.leadName} está na sua vez na roleta novamente. Você tem ${params.timeoutMinutes} min para entrar em contato.`
+            : `O lead ${params.leadName} está na sua vez na roleta. Você tem ${params.timeoutMinutes} min para entrar em contato.`,
+          url: "/broker/dashboard",
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag: turnTag(params.leadId),
+        },
+        // Depois que o prazo vence o aviso não serve mais — não adianta entregar atrasado.
+        { ttlSeconds: Math.max(60, params.timeoutMinutes * 60) }
+      );
+    } catch (error) {
+      result = { outcome: "error", devices: 0, delivered: 0, errors: [String(error)] };
+    }
+  }
+
+  await prisma.auditLog
+    .create({
+      data: {
+        organizationId: params.organizationId,
+        leadId: params.leadId,
+        action: result.outcome === "sent" ? AuditAction.PUSH_SENT : AuditAction.PUSH_FAILED,
+        entityType: "push_turn",
+        entityId: params.assignmentId,
+        metadata: {
+          brokerId: params.brokerId,
+          outcome: result.outcome,
+          devices: result.devices,
+          delivered: result.delivered,
+          process: processName(),
+          ...("errors" in result && result.errors ? { errors: result.errors.slice(0, 5) } : {}),
+        },
+      },
+    })
+    .catch((error) => console.error("[push] falha ao registrar resultado do aviso de vez", String(error)));
+
+  if (result.outcome !== "sent") {
+    console.error("[push] aviso de vez NÃO entregue", { assignmentId: params.assignmentId, outcome: result.outcome });
   }
 }
 

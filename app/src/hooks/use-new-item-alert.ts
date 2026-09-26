@@ -14,9 +14,9 @@ import { isQuietHours } from "@/lib/quiet-hours";
  */
 export function useNewItemAlert(
   ids: string[],
-  options: { soundEnabled?: boolean; notify?: (newIds: string[]) => void } = {}
+  options: { enabled?: boolean; soundEnabled?: boolean; notify?: (newIds: string[]) => void } = {}
 ) {
-  const { soundEnabled = true, notify } = options;
+  const { enabled = true, soundEnabled = true, notify } = options;
   const seenRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function useNewItemAlert(
     }
 
     const newIds = ids.filter((id) => !seenRef.current!.has(id));
-    if (newIds.length > 0 && !isQuietHours()) {
+    if (enabled && newIds.length > 0 && !isQuietHours()) {
       if (soundEnabled) playLeadAlertSound();
       notify?.(newIds);
     }

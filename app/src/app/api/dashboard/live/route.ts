@@ -5,7 +5,8 @@ import { sweepOrganizationExpirations } from "@crm/db";
 
 export async function GET() {
   try {
-    const session = await requireSession(["OWNER", "ADMIN"]);
+    // Corretores também acompanham a aba "Ao Vivo" (somente leitura).
+    const session = await requireSession(["OWNER", "ADMIN", "BROKER"]);
 
     await sweepOrganizationExpirations(session.user.organizationId);
 

@@ -190,6 +190,8 @@ async function notifyAssignmentCreated(organizationId: string, assignment: LeadA
 
     await Promise.all([
       notifyBrokerTurnPush({
+        organizationId,
+        assignmentId: assignment.id,
         leadId: lead.id,
         leadName: lead.name,
         brokerId: assignment.brokerId,
@@ -567,4 +569,25 @@ export async function returnLeadToRotation(params: { organizationId: string; lea
 
   if (assignment) await notifyAssignmentCreated(organizationId, assignment);
   return assignment;
+}
+
+/**
+ * Quantos corretores ainda vão receber este lead antes de chegar a vez de `myPosition`,
+ * seguindo exatamente a ordem da roleta (pickNextBroker: posição crescente com wraparound,
+ * pulando quem está pausado/fora da roleta). Conta o corretor que está com o lead agora +
+ * os elegíveis entre ele e mim. Ex.: roleta 1..7, lead com o #3, eu sou o #5 → 2 (o #3 e o #4).
+ * Retorna null se eu não estou elegível na roleta (pausado) ou se o lead já está comigo.
+ */
+export function brokersAheadInRotation(
+  eligiblePositions: number[],
+  currentPosition: number,
+  myPosition: number
+): number | null {
+  if (!eligiblePositions.includes(myPosition) || currentPosition === myPosition) return null;
+  const between = eligiblePositions.filter((p) =>
+    currentPosition < myPosition
+      ? p > currentPosition && p < myPosition
+      : p > currentPosition || p < myPosition
+  ).length;
+  return 1 + between;
 }
