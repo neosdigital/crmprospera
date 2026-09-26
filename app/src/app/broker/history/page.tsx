@@ -23,7 +23,7 @@ export default async function BrokerHistoryPage() {
     where: { brokerId: session.user.brokerId },
     orderBy: { assignedAt: "desc" },
     take: 50,
-    include: { lead: { select: { name: true, phone: true } } },
+    include: { lead: { select: { name: true, phone: true, email: true } } },
   });
 
   return (
@@ -43,6 +43,7 @@ export default async function BrokerHistoryPage() {
                 {a.lead.phone} · tentativa {a.attemptNumber} ·{" "}
                 {formatDistanceToNow(a.assignedAt, { addSuffix: true, locale: ptBR })}
               </p>
+              {a.lead.email && <p className="text-sm text-text-secondary">{a.lead.email}</p>}
             </div>
             <Badge tone={STATUS_TONE[a.status] ?? "neutral"}>{assignmentStatusLabel(a.status)}</Badge>
           </Card>

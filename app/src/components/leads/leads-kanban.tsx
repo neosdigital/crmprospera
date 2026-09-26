@@ -60,6 +60,11 @@ function KanbanCard({
       {lead.brokerName && <p className="mt-0.5 text-xs text-gold">Corretor: {lead.brokerName}</p>}
       <div className="mt-1 space-y-0.5 text-xs text-text-secondary">
         {lead.phone && <p>{lead.phone}</p>}
+        {lead.email && (
+          <a href={`mailto:${lead.email}`} className="block truncate hover:text-gold" title={lead.email}>
+            {lead.email}
+          </a>
+        )}
         {lead.campaignName && <p className="truncate">Campanha: {lead.campaignName}</p>}
       </div>
 

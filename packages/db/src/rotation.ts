@@ -2,6 +2,7 @@ import { prisma } from "./index";
 import { AssignmentStatus, LeadStatus, AuditAction } from "@prisma/client";
 import type { Prisma, LeadAssignment } from "@prisma/client";
 import { notifyBrokerNewAssignment, notifyBrokerExpired, hasActiveWhatsAppIntegration } from "./whatsapp";
+import { notifyBrokerTurnPush } from "./push";
 
 type Tx = Prisma.TransactionClient;
 
@@ -163,36 +164,54 @@ async function isFirstAttemptForBroker(leadId: string, brokerId: string, attempt
 }
 
 /**
- * Notifica o corretor recém-atribuído por WhatsApp. Chamada sempre FORA da transação
+ * Notifica SOMENTE o corretor que ficou com a vez (a tentativa recém-criada) — por push e,
+ * se configurado, por WhatsApp. Chamada a CADA nova tentativa, de qualquer origem: lead novo
+ * (distributeNewLead), prazo do anterior venceu (expireAndRotate — worker, varredura das
+ * rotas GET) e "devolver para a roleta" (returnLeadToRotation). Sempre FORA da transação
  * (depois do commit) — nunca faz chamada de rede externa dentro de uma transação
- * interativa do Postgres. Best-effort: erros ficam só nos logs/audit_logs de whatsapp.ts,
- * nunca propagam para quem chamou (a atribuição já está gravada e vale independente
- * do WhatsApp ter saído ou não). Se a roleta já tinha passado por este corretor antes
- * (volta completa sem ninguém responder), envia o template RETURNED em vez do de "novo
- * lead" — assim ele ainda é avisado a cada volta, mas com uma mensagem diferente, não um
- * flood da mesma mensagem repetida (ver isFirstAttemptForBroker).
+ * interativa do Postgres. Best-effort: nunca propaga erro para quem chamou (a atribuição
+ * já está gravada e vale independente do aviso ter saído ou não).
+ *
+ * Se a roleta já tinha passado por este corretor antes (volta completa sem ninguém
+ * responder), o aviso é o de "sua vez novamente" (push) / template RETURNED (WhatsApp) em
+ * vez do de "novo lead" (ver isFirstAttemptForBroker). O push de cada volta substitui a
+ * notificação anterior desse lead no aparelho do corretor (mesma tag, ver push.ts).
  */
 async function notifyAssignmentCreated(organizationId: string, assignment: LeadAssignment) {
-  if (!(await hasActiveWhatsAppIntegration(organizationId))) return;
+  try {
+    const [broker, lead, org, isFirst, hasWhatsApp] = await Promise.all([
+      prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
+      prisma.lead.findUnique({ where: { id: assignment.leadId } }),
+      prisma.organization.findUnique({ where: { id: organizationId } }),
+      isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber),
+      hasActiveWhatsAppIntegration(organizationId),
+    ]);
+    if (!broker || !lead || !org) return;
 
-  const [broker, lead, org, isFirst] = await Promise.all([
-    prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
-    prisma.lead.findUnique({ where: { id: assignment.leadId } }),
-    prisma.organization.findUnique({ where: { id: organizationId } }),
-    isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber),
-  ]);
-  if (!broker || !lead || !org) return;
-
-  await notifyBrokerNewAssignment({
-    organizationId,
-    leadId: lead.id,
-    brokerPhone: broker.phone,
-    brokerName: broker.displayName,
-    leadName: lead.name,
-    leadPhone: lead.phone,
-    timeoutMinutes: org.responseTimeoutMinutes,
-    isReturning: !isFirst,
-  });
+    await Promise.all([
+      notifyBrokerTurnPush({
+        leadId: lead.id,
+        leadName: lead.name,
+        brokerId: assignment.brokerId,
+        timeoutMinutes: org.responseTimeoutMinutes,
+        isReturning: !isFirst,
+      }),
+      hasWhatsApp
+        ? notifyBrokerNewAssignment({
+            organizationId,
+            leadId: lead.id,
+            brokerPhone: broker.phone,
+            brokerName: broker.displayName,
+            leadName: lead.name,
+            leadPhone: lead.phone,
+            timeoutMinutes: org.responseTimeoutMinutes,
+            isReturning: !isFirst,
+          })
+        : undefined,
+    ]);
+  } catch (error) {
+    console.error("[rotation] falha ao notificar corretor da vez", { assignmentId: assignment.id, error: String(error) });
+  }
 }
 
 /**
