@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
 import { isQuietHours } from "@crm/db";
+import { resolveMetricsPeriod } from "@/lib/metrics-period";
 
 /**
  * Tentativas que entram nas métricas de desempenho dos corretores. Das 23h às 07h a roleta
@@ -13,29 +14,6 @@ function countsInMetrics(a: { assignedAt: Date; status: string }) {
   return a.status === "CONTACTED" || !isQuietHours(a.assignedAt);
 }
 
-/** Resolve o período em { since, until }. "custom" usa from/to (datas ISO) vindos da query. */
-function resolvePeriod(url: URL): { period: string; since: Date; until: Date } {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const period = url.searchParams.get("period") ?? "today";
-
-  if (period === "custom") {
-    const fromParam = url.searchParams.get("from");
-    const toParam = url.searchParams.get("to");
-    const from = fromParam ? new Date(fromParam) : null;
-    const to = toParam ? new Date(toParam) : null;
-    if (from && to && !isNaN(from.getTime()) && !isNaN(to.getTime())) {
-      // "to" é só a data (sem hora): estende até o fim do dia para incluir o dia inteiro.
-      const until = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999);
-      return { period, since: from, until };
-    }
-    return { period: "today", since: startOfToday, until: now };
-  }
-
-  if (period === "7d") return { period, since: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), until: now };
-  if (period === "30d") return { period, since: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), until: now };
-  return { period: "today", since: startOfToday, until: now };
-}
 
 export async function GET(req: Request) {
   try {
@@ -44,7 +22,7 @@ export async function GET(req: Request) {
     const organizationId = session.user.organizationId;
 
     const url = new URL(req.url);
-    const { period, since, until } = resolvePeriod(url);
+    const { period, since, until } = resolveMetricsPeriod(url.searchParams);
 
     const [
       leadsInPeriod,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
 import { sweepOrganizationExpirations } from "@crm/db";
+import { applyLeadContactPrivacy } from "@/lib/lead-privacy";
 
 export async function GET() {
   try {
@@ -31,18 +32,29 @@ export async function GET() {
       take: 10,
     });
 
+    const viewer = { role: session.user.role, brokerId: session.user.brokerId };
+
     return NextResponse.json({
       activeLeads: activeLeads.map((lead) => {
         const currentAssignment =
           lead.assignments.find((a) => a.status === "ASSIGNED") ?? lead.assignments[lead.assignments.length - 1];
+        // Corretor só recebe telefone/e-mail completos dos leads que estão com ele (ver lead-privacy.ts).
+        const contact = applyLeadContactPrivacy(viewer, {
+          currentBrokerId: lead.currentBrokerId,
+          phone: lead.phone,
+          email: lead.email,
+          customFields: lead.customFields,
+        });
 
         return {
           id: lead.id,
           name: lead.name,
-          phone: lead.phone,
-          email: lead.email,
+          phone: contact.phone,
+          email: contact.email,
+          contactProtected: contact.contactProtected,
+          protectedFieldKeys: contact.protectedFieldKeys,
           campaignName: lead.campaignName,
-          customFields: lead.customFields,
+          customFields: contact.customFields,
           status: lead.status,
           brokerName: lead.currentBroker?.displayName ?? null,
           assignedAt: currentAssignment?.assignedAt ?? null,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
 import { sweepOrganizationExpirations, brokersAheadInRotation } from "@crm/db";
+import { applyLeadContactPrivacy } from "@/lib/lead-privacy";
 
 export async function GET() {
   try {
@@ -54,12 +55,16 @@ export async function GET() {
       where: { brokerId: session.user.brokerId, status: { not: "ASSIGNED" } },
       orderBy: { updatedAt: "desc" },
       take: 20,
-      include: { lead: { select: { id: true, name: true, phone: true, status: true } } },
+      include: { lead: { select: { id: true, name: true, phone: true, status: true, currentBrokerId: true } } },
     });
+
+    // Histórico inclui leads que já foram para outros corretores: contato mascarado nesses.
+    const viewer = { role: session.user.role, brokerId: session.user.brokerId };
+    const safeHistory = recentHistory.map((a) => ({ ...a, lead: applyLeadContactPrivacy(viewer, a.lead) }));
 
     return NextResponse.json({
       activeAssignments,
-      recentHistory,
+      recentHistory: safeHistory,
       rotationQueue,
       soundEnabled: broker?.soundEnabled ?? true,
       serverNow: new Date().toISOString(),

@@ -39,6 +39,7 @@ enum LeadStatus {
   CONVERTED
   LOST
   EXPIRED
+  REMARKETING
 }
 
 enum AssignmentStatus {
@@ -173,6 +174,9 @@ model Lead {
   updatedAt       DateTime   @updatedAt @map("updated_at")
   firstContactAt  DateTime?  @map("first_contact_at")
   convertedAt     DateTime?  @map("converted_at")
+  /// Lead em "Perdidos" com retorno agendado: nessa data/hora volta sozinho para a roleta
+  /// (ver returnDueLostLeads em rotation.ts). Nulo fora de LOST ou sem retorno agendado.
+  returnToRotationAt DateTime? @map("return_to_rotation_at")
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   currentBroker Broker?         @relation("CurrentBroker", fields: [currentBrokerId], references: [id])
@@ -182,6 +186,7 @@ model Lead {
   @@index([organizationId, status])
   @@index([organizationId, currentBrokerId])
   @@index([organizationId, createdAt])
+  @@index([status, returnToRotationAt])
   @@map("leads")
 }
 

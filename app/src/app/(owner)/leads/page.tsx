@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { scopedDb } from "@/lib/tenant-db";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { format } from "date-fns";
+import { formatBrasilia } from "@/lib/brasilia-time";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { LeadsTable, type LeadRow } from "@/components/leads/leads-table";
@@ -21,6 +21,7 @@ const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   CONVERTED: "success",
   LOST: "danger",
   EXPIRED: "danger",
+  REMARKETING: "gold",
 };
 
 export default async function LeadsPage({
@@ -69,7 +70,7 @@ export default async function LeadsPage({
     status: lead.status,
     statusLabel: leadStatusLabel(lead.status),
     statusTone: STATUS_TONE[lead.status] ?? "neutral",
-    createdAtLabel: format(lead.createdAt, "dd/MM HH:mm"),
+    createdAtLabel: formatBrasilia(lead.createdAt, "dd/MM HH:mm"),
   }));
 
   return (

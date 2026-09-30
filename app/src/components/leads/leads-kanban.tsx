@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DragEvent } from "react";
 import useSWR from "swr";
-import { Phone, MessageCircle, ArrowRightLeft, Check, X } from "lucide-react";
+import { Phone, MessageCircle, ArrowRightLeft, Check, X, Timer } from "lucide-react";
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
+import { LostReturnDialog } from "@/components/leads/lost-return-dialog";
+import { formatTimeUntilReturn, type LostReturnPeriod } from "@/lib/lost-return";
 
 type WalletLead = {
   id: string;
@@ -21,6 +23,8 @@ type WalletLead = {
   updatedAt: string;
   /** Só vem preenchido no kanban do dono/admin (várias carteiras juntas). */
   brokerName?: string | null;
+  /** Lead em "Perdido" com retorno agendado para a roleta (data salva no banco). */
+  returnToRotationAt?: string | null;
 };
 
 type WalletResponse = { leads: WalletLead[] };
@@ -31,7 +35,33 @@ const COLUMNS: { status: string; label: string }[] = [
   { status: "SCHEDULED", label: "Agendado" },
   { status: "CONVERTED", label: "Convertido" },
   { status: "LOST", label: "Perdido" },
+  { status: "REMARKETING", label: "Remarketing" },
 ];
+
+/**
+ * Contador do card em "Perdido": quanto falta para o lead voltar à roleta. Calculado a partir
+ * da data salva no banco (não é um cronômetro local), então sobrevive a recarregar a página,
+ * trocar de aparelho ou fazer logout. Reavalia a cada 30s; o kanban ainda recarrega os dados
+ * a cada 5s, então o card some da coluna sozinho quando o lead volta para a roleta.
+ */
+function ReturnCountdown({ returnAt }: { returnAt: string }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const date = new Date(returnAt);
+  return (
+    <p
+      className="mt-2 flex items-center gap-1.5 rounded-lg bg-gold-soft px-2 py-1.5 text-xs font-medium text-gold"
+      title={`Volta para a roleta em ${date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`}
+    >
+      <Timer size={13} className="shrink-0" />
+      {formatTimeUntilReturn(date, now)}
+    </p>
+  );
+}
 
 function whatsappLink(phone: string | null) {
   if (!phone) return null;
@@ -133,6 +163,8 @@ function KanbanCard({
         {lead.campaignName && <p className="truncate">Campanha: {lead.campaignName}</p>}
       </div>
 
+      {lead.status === "LOST" && lead.returnToRotationAt && <ReturnCountdown returnAt={lead.returnToRotationAt} />}
+
       <div className="mt-2 flex flex-col gap-1.5">
         {lead.phone && (
           <a href={`tel:${lead.phone}`}>
@@ -185,6 +217,7 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
   });
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pendingLost, setPendingLost] = useState<WalletLead | null>(null);
 
   const leads = data?.leads ?? [];
 
@@ -198,17 +231,27 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
     await moveLead(e.dataTransfer.getData("text/plain"), targetStatus);
   }
 
-  /** Usado tanto pelo arrastar quanto pelo botão "Mudar Status". */
+  /**
+   * Usado tanto pelo arrastar quanto pelo botão "Mudar Status". Mover para "Perdido" primeiro
+   * pergunta em quanto tempo o lead volta para a roleta (LostReturnDialog).
+   */
   async function moveLead(leadId: string, targetStatus: string) {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === targetStatus) return;
+    if (targetStatus === "LOST") {
+      setPendingLost(lead);
+      return;
+    }
+    await submitMove(leadId, targetStatus);
+  }
 
+  async function submitMove(leadId: string, targetStatus: string, returnPeriod?: LostReturnPeriod) {
     setErrorMsg(null);
     const optimistic = leads.map((l) => (l.id === leadId ? { ...l, status: targetStatus } : l));
     mutate({ leads: optimistic }, false);
 
     try {
-      await poster(`/api/leads/${leadId}/status`, { status: targetStatus });
+      await poster(`/api/leads/${leadId}/status`, { status: targetStatus, returnPeriod });
       mutate();
     } catch (err) {
       setErrorMsg(err instanceof FetchError ? err.message : "Não foi possível mover o lead.");
@@ -220,10 +263,22 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
     <div>
       {errorMsg && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{errorMsg}</p>}
 
+      {pendingLost && (
+        <LostReturnDialog
+          leadName={pendingLost.name}
+          onCancel={() => setPendingLost(null)}
+          onConfirm={(period) => {
+            const leadId = pendingLost.id;
+            setPendingLost(null);
+            void submitMove(leadId, "LOST", period);
+          }}
+        />
+      )}
+
       {isLoading ? (
         <p className="mt-6 text-text-secondary">Carregando...</p>
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {COLUMNS.map((col) => {
             const columnLeads = leads.filter((l) => l.status === col.status);
             return (

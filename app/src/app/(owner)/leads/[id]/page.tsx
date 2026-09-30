@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { scopedDb } from "@/lib/tenant-db";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { formatBrasilia } from "@/lib/brasilia-time";
 import { leadStatusLabel, assignmentStatusLabel } from "@/lib/labels";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
 import { LeadAssignControl } from "@/components/leads/lead-assign-control";
@@ -148,7 +148,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <ol className="mt-3 space-y-3 border-l border-[color:var(--color-border-gold)] pl-4">
             {lead.auditLogs.map((log) => (
               <li key={log.id} className="text-sm">
-                <p className="text-xs text-text-secondary">{format(log.createdAt, "dd/MM HH:mm:ss")}</p>
+                <p className="text-xs text-text-secondary">{formatBrasilia(log.createdAt, "dd/MM HH:mm:ss")}</p>
                 <p className="text-foreground">{auditLabel(log.action, log.metadata)}</p>
               </li>
             ))}

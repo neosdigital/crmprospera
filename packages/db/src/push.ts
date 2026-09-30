@@ -57,6 +57,11 @@ type PushPayload = {
   icon?: string;
   badge?: string;
   tag?: string;
+  /**
+   * true = notificação sem som/vibração. Vem da preferência "Som das notificações" do
+   * corretor (brokers.sound_enabled); o sw.js repassa ao sistema e ao app aberto.
+   */
+  silent?: boolean;
 };
 
 type SendOptions = {
@@ -127,7 +132,8 @@ async function sendToBroker(brokerId: string, payload: PushPayload, options: Sen
   const subs = broker.user.pushSubscriptions;
   if (subs.length === 0) return { outcome: "no_devices", devices: 0, delivered: 0 };
 
-  const results = await Promise.all(subs.map((sub) => sendToSubscription(sub, payload, options)));
+  const brokerPayload: PushPayload = { ...payload, silent: !broker.soundEnabled };
+  const results = await Promise.all(subs.map((sub) => sendToSubscription(sub, brokerPayload, options)));
   const delivered = results.filter((r) => r.ok).length;
   if (delivered === 0) {
     return { outcome: "all_failed", devices: subs.length, delivered: 0, errors: results.map((r) => r.error ?? "?") };

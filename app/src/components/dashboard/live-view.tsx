@@ -11,6 +11,7 @@ import { PushNotificationBanner } from "@/components/notifications/push-notifica
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { formatMetaFieldText } from "@/lib/format-text";
+import { ProtectedContact } from "@/components/leads/protected-contact";
 
 type LiveLead = {
   id: string;
@@ -19,6 +20,9 @@ type LiveLead = {
   email: string | null;
   campaignName: string | null;
   customFields: Record<string, unknown>;
+  /** Corretor vendo lead de outro: telefone/e-mail já vêm mascarados do servidor. */
+  contactProtected?: boolean;
+  protectedFieldKeys?: string[];
   status: string;
   brokerName: string | null;
   assignedAt: string | null;
@@ -153,12 +157,12 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
       <div className="mt-3 space-y-1 text-xs text-text-secondary">
         {lead.phone && (
           <p className="flex items-center gap-1.5">
-            <Phone size={12} /> {lead.phone}
+            <Phone size={12} /> <ProtectedContact value={lead.phone} isProtected={Boolean(lead.contactProtected)} />
           </p>
         )}
         {lead.email && (
           <p className="flex items-center gap-1.5">
-            <Mail size={12} /> {lead.email}
+            <Mail size={12} /> <ProtectedContact value={lead.email} isProtected={Boolean(lead.contactProtected)} />
           </p>
         )}
         {lead.campaignName && (
@@ -173,7 +177,13 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
           {customFieldsEntries.map(([q, a]) => (
             <p key={q} className="text-xs">
               <span className="text-text-secondary">{formatMetaFieldText(q)}: </span>
-              <span className="text-foreground">{formatMetaFieldText(String(a))}</span>
+              <span className="text-foreground">
+                {lead.protectedFieldKeys?.includes(q) ? (
+                  <ProtectedContact value={String(a)} isProtected />
+                ) : (
+                  formatMetaFieldText(String(a))
+                )}
+              </span>
             </p>
           ))}
         </div>

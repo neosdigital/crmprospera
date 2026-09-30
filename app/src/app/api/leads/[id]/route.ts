@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
+import { applyLeadContactPrivacy } from "@/lib/lead-privacy";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -30,7 +31,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!hasAccess) throw new ApiError(403, "Você não tem acesso a este lead.");
     }
 
-    return NextResponse.json({ lead });
+    // Corretor que só já PASSOU pelo lead (hoje está com outro) recebe o contato mascarado.
+    return NextResponse.json({
+      lead: applyLeadContactPrivacy({ role: session.user.role, brokerId: session.user.brokerId }, lead),
+    });
   } catch (error) {
     return jsonError(error);
   }

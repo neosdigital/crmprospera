@@ -11,6 +11,7 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   CONVERTED: "Convertido",
   LOST: "Perdido",
   EXPIRED: "Expirado",
+  REMARKETING: "Remarketing",
 };
 
 export const ASSIGNMENT_STATUS_LABELS: Record<AssignmentStatus, string> = {

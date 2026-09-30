@@ -5,6 +5,7 @@ import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { SignOutButton } from "@/components/layout/sign-out-button";
+import { BrokerAlertListener } from "@/components/notifications/broker-alert-listener";
 
 const ICON_SIZE = 18;
 
@@ -32,6 +33,7 @@ export default async function BrokerLayout({ children }: { children: React.React
       />
       <Sidebar items={ITEMS} orgName={org?.name ?? ""} userName={session.user.name ?? ""} />
       <main className="flex-1 overflow-y-auto">{children}</main>
+      <BrokerAlertListener />
     </div>
   );
 }

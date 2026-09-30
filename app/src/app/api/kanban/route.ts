@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     const leads = await db.lead.findMany({
       where: {
         currentBrokerId: brokerId ? brokerId : { not: null },
-        status: { in: ["IN_PROGRESS", "QUALIFIED", "SCHEDULED", "CONVERTED", "LOST"] },
+        status: { in: ["IN_PROGRESS", "QUALIFIED", "SCHEDULED", "CONVERTED", "LOST", "REMARKETING"] },
       },
       orderBy: { updatedAt: "desc" },
       take: 500,

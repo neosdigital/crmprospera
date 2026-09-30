@@ -4,7 +4,7 @@ import cron from "node-cron";
 // pra o alerta do painel conseguir dizer "o WORKER está sem as chaves", e não só "falhou".
 process.env.CRM_PROCESS_NAME = "worker";
 
-import { findExpiredAssignmentIds, expireAndRotate, prisma, isPushConfigured } from "@crm/db";
+import { findExpiredAssignmentIds, expireAndRotate, returnDueLostLeads, prisma, isPushConfigured } from "@crm/db";
 
 const intervalSeconds = Number(process.env.EXPIRATION_CHECK_INTERVAL_SECONDS ?? 15);
 
@@ -19,6 +19,14 @@ function log(event: string, data: Record<string, unknown> = {}) {
  * tentativa, expireAndRotate simplesmente não faz nada — seguro rodar em paralelo/repetido.
  */
 async function sweep() {
+  // Leads "Perdidos" com retorno agendado que já venceu voltam para a roleta existente.
+  try {
+    const returned = await returnDueLostLeads(50);
+    if (returned > 0) log("lost_leads_returned", { count: returned });
+  } catch (error) {
+    log("lost_leads_return_error", { error: String(error) });
+  }
+
   const ids = await findExpiredAssignmentIds(100);
   if (ids.length === 0) return;
 
