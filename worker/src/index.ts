@@ -4,7 +4,14 @@ import cron from "node-cron";
 // pra o alerta do painel conseguir dizer "o WORKER está sem as chaves", e não só "falhou".
 process.env.CRM_PROCESS_NAME = "worker";
 
-import { findExpiredAssignmentIds, expireAndRotate, returnDueLostLeads, prisma, isPushConfigured } from "@crm/db";
+import {
+  findExpiredAssignmentIds,
+  expireAndRotate,
+  returnDueLostLeads,
+  sendDueRemarketingReminders,
+  prisma,
+  isPushConfigured,
+} from "@crm/db";
 
 const intervalSeconds = Number(process.env.EXPIRATION_CHECK_INTERVAL_SECONDS ?? 15);
 
@@ -25,6 +32,14 @@ async function sweep() {
     if (returned > 0) log("lost_leads_returned", { count: returned });
   } catch (error) {
     log("lost_leads_return_error", { error: String(error) });
+  }
+
+  // Lembretes de Remarketing vencidos: reenvia a notificação para o corretor com o lead.
+  try {
+    const reminded = await sendDueRemarketingReminders(50);
+    if (reminded > 0) log("remarketing_reminders_sent", { count: reminded });
+  } catch (error) {
+    log("remarketing_reminders_error", { error: String(error) });
   }
 
   const ids = await findExpiredAssignmentIds(100);

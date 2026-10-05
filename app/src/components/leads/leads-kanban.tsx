@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import type { DragEvent } from "react";
 import useSWR from "swr";
-import { Phone, MessageCircle, ArrowRightLeft, Check, X, Timer } from "lucide-react";
+import { Phone, MessageCircle, ArrowRightLeft, Check, X, Timer, StickyNote, BellRing } from "lucide-react";
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
 import { LostReturnDialog } from "@/components/leads/lost-return-dialog";
-import { formatTimeUntilReturn, type LostReturnPeriod } from "@/lib/lost-return";
+import { LeadNotesDialog } from "@/components/leads/lead-notes-dialog";
+import { formatTimeUntilReturn, formatTimeUntilReminder, type LostReturnPeriod } from "@/lib/lost-return";
+import { formatBrasilia } from "@/lib/brasilia-time";
 
 type WalletLead = {
   id: string;
@@ -25,6 +27,10 @@ type WalletLead = {
   brokerName?: string | null;
   /** Lead em "Perdido" com retorno agendado para a roleta (data salva no banco). */
   returnToRotationAt?: string | null;
+  /** Lead em "Remarketing" com lembrete agendado para o corretor (data salva no banco). */
+  remarketingNotifyAt?: string | null;
+  /** Quantidade de notas na timeline — decide "Ver Notas" x "Adicionar Notas". */
+  noteCount?: number;
 };
 
 type WalletResponse = { leads: WalletLead[] };
@@ -39,26 +45,29 @@ const COLUMNS: { status: string; label: string }[] = [
 ];
 
 /**
- * Contador do card em "Perdido": quanto falta para o lead voltar à roleta. Calculado a partir
- * da data salva no banco (não é um cronômetro local), então sobrevive a recarregar a página,
- * trocar de aparelho ou fazer logout. Reavalia a cada 30s; o kanban ainda recarrega os dados
- * a cada 5s, então o card some da coluna sozinho quando o lead volta para a roleta.
+ * Contador do card: em "Perdido", quanto falta para o lead voltar à roleta; em "Remarketing",
+ * quanto falta para o lembrete do corretor. Calculado a partir da data salva no banco (não é
+ * um cronômetro local), então sobrevive a recarregar a página, trocar de aparelho ou fazer
+ * logout. Reavalia a cada 30s; o kanban ainda recarrega os dados a cada 5s, então o contador
+ * some sozinho quando o lead volta para a roleta / o lembrete é enviado.
  */
-function ReturnCountdown({ returnAt }: { returnAt: string }) {
+function ScheduleCountdown({ at, kind }: { at: string; kind: "return" | "reminder" }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
 
-  const date = new Date(returnAt);
+  const date = new Date(at);
+  const when = `${formatBrasilia(date, "dd/MM/yyyy")} às ${formatBrasilia(date, "HH:mm")}`;
+  const Icon = kind === "return" ? Timer : BellRing;
   return (
     <p
       className="mt-2 flex items-center gap-1.5 rounded-lg bg-gold-soft px-2 py-1.5 text-xs font-medium text-gold"
-      title={`Volta para a roleta em ${date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`}
+      title={kind === "return" ? `Volta para a roleta em ${when}` : `Lembrete para o corretor em ${when}`}
     >
-      <Timer size={13} className="shrink-0" />
-      {formatTimeUntilReturn(date, now)}
+      <Icon size={13} className="shrink-0" />
+      {kind === "return" ? formatTimeUntilReturn(date, now) : formatTimeUntilReminder(date, now)}
     </p>
   );
 }
@@ -144,6 +153,8 @@ function KanbanCard({
 }) {
   const wa = whatsappLink(lead.phone);
   const [changingStatus, setChangingStatus] = useState(false);
+  const [viewingNotes, setViewingNotes] = useState(false);
+  const hasNotes = (lead.noteCount ?? 0) > 0 || Boolean(lead.notes?.trim());
 
   return (
     <div
@@ -163,7 +174,10 @@ function KanbanCard({
         {lead.campaignName && <p className="truncate">Campanha: {lead.campaignName}</p>}
       </div>
 
-      {lead.status === "LOST" && lead.returnToRotationAt && <ReturnCountdown returnAt={lead.returnToRotationAt} />}
+      {lead.status === "LOST" && lead.returnToRotationAt && <ScheduleCountdown at={lead.returnToRotationAt} kind="return" />}
+      {lead.status === "REMARKETING" && lead.remarketingNotifyAt && (
+        <ScheduleCountdown at={lead.remarketingNotifyAt} kind="reminder" />
+      )}
 
       <div className="mt-2 flex flex-col gap-1.5">
         {lead.phone && (
@@ -186,7 +200,13 @@ function KanbanCard({
           <ArrowRightLeft size={13} />
           Mudar Status
         </Button>
+        <Button variant="secondary" className="w-full py-1.5 text-xs" onClick={() => setViewingNotes(true)}>
+          <StickyNote size={13} />
+          {hasNotes ? `Ver Notas (${lead.noteCount ?? 1})` : "Adicionar Notas"}
+        </Button>
       </div>
+
+      {viewingNotes && <LeadNotesDialog leadId={lead.id} onClose={() => setViewingNotes(false)} onChanged={onSaved} />}
 
       {changingStatus && (
         <ChangeStatusDialog
@@ -200,7 +220,8 @@ function KanbanCard({
       )}
 
       <div className="mt-3 border-t border-[color:var(--color-border-gold)]/40 pt-3">
-        <LeadNotesEditor leadId={lead.id} initialNotes={lead.notes} onSaved={onSaved} compact />
+        {/* key: se a observação for editada pela janela de notas, o campo do card recarrega o texto novo. */}
+        <LeadNotesEditor key={lead.notes ?? ""} leadId={lead.id} initialNotes={lead.notes} onSaved={onSaved} compact />
       </div>
     </div>
   );
@@ -217,7 +238,11 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
   });
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [pendingLost, setPendingLost] = useState<WalletLead | null>(null);
+  // Movimento que precisa de prazo antes de ir para o servidor: "Perdido" (retorno à roleta)
+  // ou "Remarketing" (lembrete para o corretor).
+  const [pendingSchedule, setPendingSchedule] = useState<{ lead: WalletLead; status: "LOST" | "REMARKETING" } | null>(
+    null
+  );
 
   const leads = data?.leads ?? [];
 
@@ -232,14 +257,15 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
   }
 
   /**
-   * Usado tanto pelo arrastar quanto pelo botão "Mudar Status". Mover para "Perdido" primeiro
-   * pergunta em quanto tempo o lead volta para a roleta (LostReturnDialog).
+   * Usado tanto pelo arrastar quanto pelo botão "Mudar Status". Mover para "Perdido" pergunta
+   * em quanto tempo o lead volta para a roleta; para "Remarketing", quando reenviar a
+   * notificação para o corretor (LostReturnDialog nos dois casos).
    */
   async function moveLead(leadId: string, targetStatus: string) {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === targetStatus) return;
-    if (targetStatus === "LOST") {
-      setPendingLost(lead);
+    if (targetStatus === "LOST" || targetStatus === "REMARKETING") {
+      setPendingSchedule({ lead, status: targetStatus });
       return;
     }
     await submitMove(leadId, targetStatus);
@@ -263,14 +289,19 @@ export function LeadsKanban({ endpoint, emptyMessage }: { endpoint: string; empt
     <div>
       {errorMsg && <p className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{errorMsg}</p>}
 
-      {pendingLost && (
+      {pendingSchedule && (
         <LostReturnDialog
-          leadName={pendingLost.name}
-          onCancel={() => setPendingLost(null)}
+          leadName={pendingSchedule.lead.name}
+          title={
+            pendingSchedule.status === "LOST"
+              ? "Em quanto tempo esse lead volta para a roleta?"
+              : "Quando reenviar a notificação para o corretor?"
+          }
+          onCancel={() => setPendingSchedule(null)}
           onConfirm={(period) => {
-            const leadId = pendingLost.id;
-            setPendingLost(null);
-            void submitMove(leadId, "LOST", period);
+            const { lead, status } = pendingSchedule;
+            setPendingSchedule(null);
+            void submitMove(lead.id, status, period);
           }}
         />
       )}

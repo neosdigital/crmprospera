@@ -20,11 +20,15 @@ export async function GET(req: Request) {
       },
       orderBy: { updatedAt: "desc" },
       take: 500,
-      include: { currentBroker: { select: { displayName: true } } },
+      include: { currentBroker: { select: { displayName: true } }, _count: { select: { noteEntries: true } } },
     });
 
     return NextResponse.json({
-      leads: leads.map(({ currentBroker, ...lead }) => ({ ...lead, brokerName: currentBroker?.displayName ?? null })),
+      leads: leads.map(({ currentBroker, _count, ...lead }) => ({
+        ...lead,
+        brokerName: currentBroker?.displayName ?? null,
+        noteCount: _count.noteEntries,
+      })),
     });
   } catch (error) {
     return jsonError(error);

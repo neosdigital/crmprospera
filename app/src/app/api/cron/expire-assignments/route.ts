@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findExpiredAssignmentIds, expireAndRotate, returnDueLostLeads } from "@crm/db";
+import { findExpiredAssignmentIds, expireAndRotate, returnDueLostLeads, sendDueRemarketingReminders } from "@crm/db";
 
 /**
  * Endpoint de fallback/teste manual do mesmo processo executado pelo worker do Railway
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
   }
 
   const lostLeadsReturned = await returnDueLostLeads(50);
+  const remarketingReminders = await sendDueRemarketingReminders(50);
 
-  return NextResponse.json({ processed: results.length, results, lostLeadsReturned });
+  return NextResponse.json({ processed: results.length, results, lostLeadsReturned, remarketingReminders });
 }

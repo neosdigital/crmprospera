@@ -80,12 +80,12 @@ enum AuditAction {
 // ============================================================
 
 model Organization {
-  id                      String   @id @default(cuid())
-  name                    String
-  slug                    String   @unique
-  responseTimeoutMinutes  Int      @default(5) @map("response_timeout_minutes")
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  id                     String   @id @default(cuid())
+  name                   String
+  slug                   String   @unique
+  responseTimeoutMinutes Int      @default(5) @map("response_timeout_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   users               User[]
   brokers             Broker[]
@@ -96,6 +96,7 @@ model Organization {
   whatsappIntegration WhatsAppIntegration?
   auditLogs           AuditLog[]
   pushSubscriptions   PushSubscription[]
+  leadNotes           LeadNote[]
 
   @@map("organizations")
 }
@@ -115,6 +116,8 @@ model User {
   broker            Broker?
   auditLogs         AuditLog[]
   pushSubscriptions PushSubscription[]
+  notesAuthored     LeadNote[]         @relation("LeadNoteAuthor")
+  noteRevisions     LeadNoteRevision[] @relation("LeadNoteEditor")
 
   @@index([organizationId])
   @@map("users")
@@ -134,10 +137,10 @@ model Broker {
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 
-  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leadsCurrent     Lead[]           @relation("CurrentBroker")
-  leadAssignments  LeadAssignment[]
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadsCurrent    Lead[]           @relation("CurrentBroker")
+  leadAssignments LeadAssignment[]
 
   @@unique([organizationId, rotationPosition])
   @@index([organizationId])
@@ -149,45 +152,97 @@ model Broker {
 // ============================================================
 
 model Lead {
-  id              String     @id @default(cuid())
-  organizationId  String     @map("organization_id")
-  metaLeadId      String?    @unique @map("meta_lead_id")
-  name            String
-  phone           String?
-  email           String?
-  source          String     @default("meta_ads")
-  platform        String?
-  pageId          String?    @map("page_id")
-  campaignId      String?    @map("campaign_id")
-  campaignName    String?    @map("campaign_name")
-  adsetId         String?    @map("adset_id")
-  adsetName       String?    @map("adset_name")
-  adId            String?    @map("ad_id")
-  adName          String?    @map("ad_name")
-  formId          String?    @map("form_id")
-  formName        String?    @map("form_name")
-  customFields    Json       @default("{}") @map("custom_fields")
-  status          LeadStatus @default(NEW)
-  notes           String?    @map("notes")
-  currentBrokerId String?    @map("current_broker_id")
-  createdAt       DateTime   @default(now()) @map("created_at")
-  updatedAt       DateTime   @updatedAt @map("updated_at")
-  firstContactAt  DateTime?  @map("first_contact_at")
-  convertedAt     DateTime?  @map("converted_at")
+  id                  String     @id @default(cuid())
+  organizationId      String     @map("organization_id")
+  metaLeadId          String?    @unique @map("meta_lead_id")
+  name                String
+  phone               String?
+  email               String?
+  source              String     @default("meta_ads")
+  platform            String?
+  pageId              String?    @map("page_id")
+  campaignId          String?    @map("campaign_id")
+  campaignName        String?    @map("campaign_name")
+  adsetId             String?    @map("adset_id")
+  adsetName           String?    @map("adset_name")
+  adId                String?    @map("ad_id")
+  adName              String?    @map("ad_name")
+  formId              String?    @map("form_id")
+  formName            String?    @map("form_name")
+  customFields        Json       @default("{}") @map("custom_fields")
+  status              LeadStatus @default(NEW)
+  notes               String?    @map("notes")
+  currentBrokerId     String?    @map("current_broker_id")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
+  firstContactAt      DateTime?  @map("first_contact_at")
+  convertedAt         DateTime?  @map("converted_at")
   /// Lead em "Perdidos" com retorno agendado: nessa data/hora volta sozinho para a roleta
   /// (ver returnDueLostLeads em rotation.ts). Nulo fora de LOST ou sem retorno agendado.
-  returnToRotationAt DateTime? @map("return_to_rotation_at")
+  returnToRotationAt  DateTime?  @map("return_to_rotation_at")
+  /// Lead em "Remarketing" com lembrete agendado: nessa data/hora o corretor que está com o
+  /// lead recebe de novo uma notificação (ver sendDueRemarketingReminders em rotation.ts).
+  remarketingNotifyAt DateTime?  @map("remarketing_notify_at")
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  currentBroker Broker?         @relation("CurrentBroker", fields: [currentBrokerId], references: [id])
-  assignments  LeadAssignment[]
-  auditLogs    AuditLog[]
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  currentBroker Broker?          @relation("CurrentBroker", fields: [currentBrokerId], references: [id])
+  assignments   LeadAssignment[]
+  auditLogs     AuditLog[]
+  noteEntries   LeadNote[]
 
   @@index([organizationId, status])
   @@index([organizationId, currentBrokerId])
   @@index([organizationId, createdAt])
   @@index([status, returnToRotationAt])
+  @@index([status, remarketingNotifyAt])
   @@map("leads")
+}
+
+// ============================================================
+// NOTAS DO LEAD (timeline)
+// ============================================================
+
+/// Timeline de notas de um lead. `kind`:
+/// - "NOTE": nota adicionada pela janela "Ver Notas";
+/// - "OBSERVATION": o campo de observação que já existia no card (leads.notes). A anotação
+///   antiga de cada lead foi copiada para cá na migração (leads.notes continua intacto) e as
+///   edições desse campo continuam sincronizadas com ele.
+model LeadNote {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  leadId         String    @map("lead_id")
+  authorUserId   String?   @map("author_user_id")
+  kind           String    @default("NOTE")
+  content        String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  /// Última modificação do conteúdo (nulo se nunca foi editada).
+  editedAt       DateTime? @map("edited_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author       User?              @relation("LeadNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  revisions    LeadNoteRevision[]
+
+  @@index([leadId, createdAt])
+  @@index([organizationId])
+  @@map("lead_notes")
+}
+
+/// Cada modificação de uma nota: conteúdo antes e depois, quem e quando. Nunca é apagada.
+model LeadNoteRevision {
+  id              String   @id @default(cuid())
+  noteId          String   @map("note_id")
+  previousContent String   @map("previous_content")
+  newContent      String   @map("new_content")
+  editedByUserId  String?  @map("edited_by_user_id")
+  editedAt        DateTime @default(now()) @map("edited_at")
+
+  note     LeadNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  editedBy User?    @relation("LeadNoteEditor", fields: [editedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([noteId, editedAt])
+  @@map("lead_note_revisions")
 }
 
 model LeadAssignment {
@@ -230,18 +285,18 @@ model RotationState {
 // ============================================================
 
 model MetaIntegration {
-  id                    String    @id @default(cuid())
-  organizationId        String    @map("organization_id")
-  pageId                String    @map("page_id")
-  pageName              String?   @map("page_name")
-  accessTokenEncrypted  String    @map("access_token_encrypted")
-  tokenExpiresAt        DateTime? @map("token_expires_at")
-  isActive              Boolean   @default(true) @map("is_active")
-  lastEventAt           DateTime? @map("last_event_at")
-  lastLeadSyncAt        DateTime? @map("last_lead_sync_at")
-  webhookVerifiedAt     DateTime? @map("webhook_verified_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  pageId               String    @map("page_id")
+  pageName             String?   @map("page_name")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  tokenExpiresAt       DateTime? @map("token_expires_at")
+  isActive             Boolean   @default(true) @map("is_active")
+  lastEventAt          DateTime? @map("last_event_at")
+  lastLeadSyncAt       DateTime? @map("last_lead_sync_at")
+  webhookVerifiedAt    DateTime? @map("webhook_verified_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -254,17 +309,17 @@ model MetaIntegration {
 // ============================================================
 
 model WhatsAppIntegration {
-  id                    String    @id @default(cuid())
-  organizationId        String    @unique @map("organization_id")
-  phoneNumberId         String    @map("phone_number_id")
-  displayPhoneNumber    String?   @map("display_phone_number")
-  accessTokenEncrypted  String    @map("access_token_encrypted")
-  isActive              Boolean   @default(true) @map("is_active")
-  lastMessageAt         DateTime? @map("last_message_at")
-  lastErrorAt           DateTime? @map("last_error_at")
-  lastError             String?   @map("last_error")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  organizationId       String    @unique @map("organization_id")
+  phoneNumberId        String    @map("phone_number_id")
+  displayPhoneNumber   String?   @map("display_phone_number")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  isActive             Boolean   @default(true) @map("is_active")
+  lastMessageAt        DateTime? @map("last_message_at")
+  lastErrorAt          DateTime? @map("last_error_at")
+  lastError            String?   @map("last_error")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 

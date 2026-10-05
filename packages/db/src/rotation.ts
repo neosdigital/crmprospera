@@ -2,7 +2,7 @@ import { prisma } from "./index";
 import { AssignmentStatus, LeadStatus, AuditAction } from "@prisma/client";
 import type { Prisma, LeadAssignment } from "@prisma/client";
 import { notifyBrokerNewAssignment, notifyBrokerExpired, hasActiveWhatsAppIntegration } from "./whatsapp";
-import { notifyBrokerTurnPush } from "./push";
+import { notifyBrokerTurnPush, notifyRemarketingReminder } from "./push";
 import { isQuietHours } from "./quiet-hours";
 
 type Tx = Prisma.TransactionClient;
@@ -451,8 +451,86 @@ export async function sweepOrganizationExpirations(organizationId: string) {
       console.error("[rotation] falha ao expirar/rotacionar tentativa", id, error);
     }
   }
-  // Mesma rede de segurança para o retorno agendado dos leads perdidos.
+  // Mesma rede de segurança para o retorno agendado dos leads perdidos e os lembretes de remarketing.
   await returnDueLostLeads(20, organizationId);
+  await sendDueRemarketingReminders(20, organizationId);
+}
+
+/**
+ * Leads em "Remarketing" cujo lembrete já venceu. Como os outros avisos, não dispara entre
+ * 23h e 07h — o lembrete espera até as 07h para o corretor não perdê-lo de madrugada.
+ */
+export async function findDueRemarketingLeadIds(limit = 50, organizationId?: string, now = new Date()): Promise<string[]> {
+  if (isQuietHours(now)) return [];
+  const rows = await prisma.lead.findMany({
+    where: {
+      status: LeadStatus.REMARKETING,
+      remarketingNotifyAt: { lte: now },
+      ...(organizationId ? { organizationId } : {}),
+    },
+    orderBy: { remarketingNotifyAt: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Envia UM lembrete de remarketing para o corretor que está com o lead e limpa a data (um
+ * lembrete por agendamento). Idempotente: revalida com lock — se o lead saiu de
+ * "Remarketing", foi reagendado ou outro processo já enviou, não faz nada. O lead continua
+ * na carteira do mesmo corretor.
+ */
+export async function sendRemarketingReminder(leadId: string, now = new Date()) {
+  const due = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM leads WHERE id = ${leadId} FOR UPDATE`;
+    if (rows.length === 0) return null;
+
+    const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+    if (lead.status !== LeadStatus.REMARKETING || !lead.remarketingNotifyAt || lead.remarketingNotifyAt > now) return null;
+
+    await tx.lead.update({ where: { id: leadId }, data: { remarketingNotifyAt: null } });
+    await tx.auditLog.create({
+      data: {
+        organizationId: lead.organizationId,
+        leadId,
+        action: AuditAction.STATUS_CHANGED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: {
+          reason: "remarketing_reminder",
+          scheduledFor: lead.remarketingNotifyAt.toISOString(),
+          brokerId: lead.currentBrokerId,
+        },
+      },
+    });
+    return lead;
+  }, TX_OPTIONS);
+
+  if (!due) return null;
+  if (due.currentBrokerId) {
+    await notifyRemarketingReminder({
+      organizationId: due.organizationId,
+      leadId: due.id,
+      leadName: due.name,
+      brokerId: due.currentBrokerId,
+    });
+  }
+  return due;
+}
+
+/** Varredura dos lembretes de remarketing (worker a cada ciclo + rotas GET como rede de segurança). */
+export async function sendDueRemarketingReminders(limit = 50, organizationId?: string) {
+  const ids = await findDueRemarketingLeadIds(limit, organizationId);
+  let sent = 0;
+  for (const id of ids) {
+    try {
+      if (await sendRemarketingReminder(id)) sent += 1;
+    } catch (error) {
+      console.error("[rotation] falha ao enviar lembrete de remarketing", id, error);
+    }
+  }
+  return sent;
 }
 
 /**

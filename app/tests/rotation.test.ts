@@ -1,10 +1,25 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { prisma } from "@crm/db";
 import { distributeNewLead, claimLead, expireAndRotate, ClaimError } from "@crm/db";
 import { createTestOrg, createTestLead, cleanupTestOrg } from "./helpers";
 
+/**
+ * Relógio do teste adiantado para amanhã (e andando normalmente). Os testes rodam no mesmo
+ * Postgres em que o worker real do Railway varre `expires_at <= now()` a cada 15s: com o
+ * relógio real, uma tentativa que o teste marca como vencida às vezes era girada pelo worker
+ * antes do próprio teste (falha intermitente). No futuro, o worker nunca encosta nelas.
+ */
+beforeEach(() => {
+  const tomorrow = new Date();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(18, 0, 0, 0); // 15h em Brasília
+  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+  vi.setSystemTime(tomorrow);
+});
+
 const cleanupIds: string[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   while (cleanupIds.length) {
     const id = cleanupIds.pop()!;
     await cleanupTestOrg(id);

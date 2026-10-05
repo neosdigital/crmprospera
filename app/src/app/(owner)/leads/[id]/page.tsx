@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatBrasilia } from "@/lib/brasilia-time";
 import { leadStatusLabel, assignmentStatusLabel } from "@/lib/labels";
 import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
+import { OpenNotesButton } from "@/components/leads/open-notes-button";
 import { LeadAssignControl } from "@/components/leads/lead-assign-control";
 import { formatMetaFieldText } from "@/lib/format-text";
 
@@ -18,6 +19,10 @@ const AUDIT_LABEL: Record<string, string> = {
   STATUS_CHANGED: "Status alterado",
   CONVERTED: "Lead convertido",
   LOST: "Lead perdido",
+  PUSH_SENT: "Notificação enviada ao corretor",
+  PUSH_FAILED: "Notificação ao corretor não foi entregue",
+  WHATSAPP_SENT: "WhatsApp enviado ao corretor",
+  WHATSAPP_FAILED: "WhatsApp ao corretor não foi entregue",
 };
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -36,6 +41,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         include: { broker: { select: { displayName: true } } },
       },
       auditLogs: { orderBy: { createdAt: "asc" } },
+      _count: { select: { noteEntries: true } },
     },
   });
 
@@ -48,7 +54,18 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const brokerName = new Map(brokers.map((b) => [b.id, b.displayName]));
 
   function auditLabel(action: string, metadata: unknown) {
-    const meta = (metadata ?? {}) as { manual?: boolean; returnedToRotation?: boolean; toBrokerId?: string | null };
+    const meta = (metadata ?? {}) as {
+      manual?: boolean;
+      returnedToRotation?: boolean;
+      toBrokerId?: string | null;
+      reason?: string;
+      to?: string;
+    };
+    if (action === "STATUS_CHANGED") {
+      if (meta.reason === "lost_return_to_rotation") return "Voltou para a roleta (retorno agendado do Perdido)";
+      if (meta.reason === "remarketing_reminder") return "Lembrete de remarketing enviado ao corretor";
+      if (meta.to) return `Status alterado para ${leadStatusLabel(meta.to)}`;
+    }
     if (action === "TRANSFERRED" && meta.manual) {
       if (meta.returnedToRotation) return "Devolvido para a roleta pelo administrador";
       const to = meta.toBrokerId ? brokerName.get(meta.toBrokerId) : null;
@@ -139,7 +156,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </div>
 
           <div className="mt-4 border-t border-[color:var(--color-border-gold)] pt-4">
-            <LeadNotesEditor leadId={lead.id} initialNotes={lead.notes} />
+            <LeadNotesEditor key={lead.notes ?? ""} leadId={lead.id} initialNotes={lead.notes} />
+            <div className="mt-3">
+              <OpenNotesButton leadId={lead.id} noteCount={lead._count.noteEntries} />
+            </div>
           </div>
         </Card>
 

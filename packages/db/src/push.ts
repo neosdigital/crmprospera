@@ -263,6 +263,55 @@ export async function notifyBrokerTurnPush(params: {
 }
 
 /**
+ * Lembrete de Remarketing: na data agendada, reenvia a notificação para o corretor que já
+ * está com o lead (o lead NÃO sai da carteira dele). Nunca lança; grava o resultado no
+ * audit_log (PUSH_SENT / PUSH_FAILED, entityType "push_remarketing").
+ */
+export async function notifyRemarketingReminder(params: {
+  organizationId: string;
+  leadId: string;
+  leadName: string;
+  brokerId: string;
+}): Promise<void> {
+  let result: BrokerSendResult | { outcome: "not_configured" | "error"; devices: 0; delivered: 0; errors?: string[] };
+  if (!ensureConfigured()) {
+    result = { outcome: "not_configured", devices: 0, delivered: 0 };
+  } else {
+    try {
+      result = await sendToBroker(params.brokerId, {
+        title: "Lembrete de remarketing",
+        body: `Hora de retomar o contato com ${params.leadName}.`,
+        url: "/broker/wallet",
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: `lead-remarketing-${params.leadId}`,
+      });
+    } catch (error) {
+      result = { outcome: "error", devices: 0, delivered: 0, errors: [String(error)] };
+    }
+  }
+
+  await prisma.auditLog
+    .create({
+      data: {
+        organizationId: params.organizationId,
+        leadId: params.leadId,
+        action: result.outcome === "sent" ? AuditAction.PUSH_SENT : AuditAction.PUSH_FAILED,
+        entityType: "push_remarketing",
+        entityId: params.leadId,
+        metadata: {
+          brokerId: params.brokerId,
+          outcome: result.outcome,
+          devices: result.devices,
+          delivered: result.delivered,
+          process: processName(),
+        },
+      },
+    })
+    .catch((error) => console.error("[push] falha ao registrar lembrete de remarketing", String(error)));
+}
+
+/**
  * Avisa SÓ o corretor que recebeu um lead direcionado manualmente pelo dono/admin (sem
  * roleta). Nunca lança e respeita o horário de silêncio.
  */

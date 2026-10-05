@@ -21,9 +21,11 @@ export async function GET() {
       },
       orderBy: { updatedAt: "desc" },
       take: 200,
+      include: { _count: { select: { noteEntries: true } } },
     });
 
-    return NextResponse.json({ leads });
+    // noteCount decide o botão do card: "Ver Notas" (tem notas) ou "Adicionar Notas".
+    return NextResponse.json({ leads: leads.map(({ _count, ...lead }) => ({ ...lead, noteCount: _count.noteEntries })) });
   } catch (error) {
     return jsonError(error);
   }

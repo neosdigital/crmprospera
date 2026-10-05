@@ -7,15 +7,18 @@ import { Input } from "@/components/ui/input";
 import { LOST_RETURN_PRESETS, LOST_RETURN_MAX_MONTHS, type LostReturnPeriod } from "@/lib/lost-return";
 
 /**
- * Pergunta exibida ao mover um lead para "Perdidos": "Em quanto tempo esse lead volta para a
- * roleta?". Cancelar não move o lead. A data de retorno é calculada no servidor.
+ * Pergunta de prazo ao mover um lead para "Perdidos" ("Em quanto tempo esse lead volta para a
+ * roleta?") ou para "Remarketing" ("Quando reenviar a notificação para o corretor?").
+ * Cancelar não move o lead. A data é calculada no servidor.
  */
 export function LostReturnDialog({
   leadName,
+  title = "Em quanto tempo esse lead volta para a roleta?",
   onCancel,
   onConfirm,
 }: {
   leadName: string;
+  title?: string;
   onCancel: () => void;
   onConfirm: (period: LostReturnPeriod) => void;
 }) {
@@ -38,12 +41,12 @@ export function LostReturnDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Em quanto tempo esse lead volta para a roleta?"
+        aria-label={title}
         className="w-full max-w-sm rounded-2xl border border-[color:var(--color-border-gold)] bg-surface p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-semibold text-foreground">Em quanto tempo esse lead volta para a roleta?</p>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
           <button
             type="button"
             onClick={onCancel}

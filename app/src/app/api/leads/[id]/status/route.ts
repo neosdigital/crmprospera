@@ -16,7 +16,8 @@ const ALLOWED_MANUAL_STATUSES = [
 const bodySchema = z.object({
   status: z.enum(ALLOWED_MANUAL_STATUSES),
   /**
-   * Só para LOST: "Em quanto tempo esse lead volta para a roleta?". A data de retorno é
+   * LOST: "Em quanto tempo esse lead volta para a roleta?"; REMARKETING: "Quando reenviar a
+   * notificação para o corretor?". A data é
    * calculada aqui no servidor (nunca vem pronta do navegador). Opcional por compatibilidade
    * — sem período o lead fica em "Perdidos" sem retorno agendado, como antes.
    */
@@ -39,20 +40,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw new ApiError(403, "Você só pode atualizar leads atribuídos a você.");
     }
 
-    let returnToRotationAt: Date | null = null;
-    if (status === LeadStatus.LOST && returnPeriod) {
+    // Mesmo prazo, dois usos: em "Perdido" a data devolve o lead para a roleta; em
+    // "Remarketing" a data reenvia a notificação para o corretor que já está com o lead.
+    let scheduledAt: Date | null = null;
+    if ((status === LeadStatus.LOST || status === LeadStatus.REMARKETING) && returnPeriod) {
       const invalid = validateLostReturnPeriod(returnPeriod);
       if (invalid) throw new ApiError(400, invalid);
-      returnToRotationAt = computeLostReturnAt(new Date(), returnPeriod);
+      scheduledAt = computeLostReturnAt(new Date(), returnPeriod);
     }
+    const returnToRotationAt = status === LeadStatus.LOST ? scheduledAt : null;
+    const remarketingNotifyAt = status === LeadStatus.REMARKETING ? scheduledAt : null;
 
     const updated = await db.lead.update({
       where: { id },
       data: {
         status,
         convertedAt: status === LeadStatus.CONVERTED ? new Date() : lead.convertedAt,
-        // Sair de "Perdidos" (ou entrar sem prazo) cancela qualquer retorno agendado.
+        // Sair de "Perdidos"/"Remarketing" (ou entrar sem prazo) cancela o agendamento.
         returnToRotationAt,
+        remarketingNotifyAt,
       },
     });
 
@@ -68,6 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           from: lead.status,
           to: status,
           ...(returnToRotationAt ? { returnToRotationAt: returnToRotationAt.toISOString(), returnPeriod } : {}),
+          ...(remarketingNotifyAt ? { remarketingNotifyAt: remarketingNotifyAt.toISOString(), returnPeriod } : {}),
         },
       },
     });

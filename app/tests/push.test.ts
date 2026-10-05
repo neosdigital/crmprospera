@@ -230,7 +230,8 @@ describe("Web Push — aviso de vez na roleta (só para o corretor da vez)", () 
     return result.expired ? result.nextAssignment : null;
   }
 
-  it("a cada passagem da roleta, só o corretor da vez recebe o push — inclusive nas voltas seguintes", async () => {
+  // Teste longo (4 passagens da roleta contra o banco remoto): tempo maior que o padrão de 60s.
+  it("a cada passagem da roleta, só o corretor da vez recebe o push — inclusive nas voltas seguintes", { timeout: 180_000 }, async () => {
     const { org, brokers } = await setup();
     const lead = await createTestLead(org.id, "Carla Souza");
 
