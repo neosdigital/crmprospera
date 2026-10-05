@@ -34,7 +34,7 @@ const ctx = (id: string, noteId?: string) => ({ params: Promise.resolve(noteId ?
 const json = (body: unknown, method = "POST") => new Request("http://test", { method, body: JSON.stringify(body) });
 
 type NotesBody = {
-  lead: { name: string; phone: string };
+  lead: { name: string; phone: string; contactProtected: boolean };
   notes: { id: string; kind: string; content: string; legacy: boolean; editedAt: string | null; canEdit: boolean; author: { name: string } | null; revisions: { previousContent: string; newContent: string }[] }[];
 };
 async function readNotes(leadId: string) {
@@ -59,7 +59,7 @@ describe("Notas do lead — timeline com histórico de modificações", () => {
     const { status } = first;
     let { body } = first;
     expect(status).toBe(200);
-    expect(body.lead).toMatchObject({ name: "Caua", phone: "+5547997483493" });
+    expect(body.lead).toMatchObject({ name: "Caua", phone: "+5547997483493", contactProtected: false });
     expect(body.notes).toHaveLength(1);
     expect(body.notes[0]).toMatchObject({ kind: "OBSERVATION", content: "Anotação antiga do card", legacy: true });
 

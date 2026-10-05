@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
-import { X, Pencil, History, Send, StickyNote } from "lucide-react";
+import { X, Pencil, History, Send, StickyNote, ChevronDown } from "lucide-react";
+import { ProtectedContact } from "@/components/leads/protected-contact";
 import { fetcher, poster, patcher, FetchError } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,6 +40,9 @@ type NotesResponse = {
     brokerName: string | null;
     createdAt: string;
     customFields: Record<string, unknown>;
+    /** Corretor sem o lead na carteira: contato já vem mascarado do servidor. */
+    contactProtected?: boolean;
+    protectedFieldKeys?: string[];
   };
   notes: Note[];
 };
@@ -46,13 +50,82 @@ type NotesResponse = {
 /** "05/10/2026 às 14:32" no horário de Brasília. */
 const when = (iso: string) => `${formatBrasilia(iso, "dd/MM/yyyy")} às ${formatBrasilia(iso, "HH:mm")}`;
 
-function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+function InfoRow({
+  label,
+  value,
+  isProtected = false,
+}: {
+  label: string;
+  value: string | null | undefined;
+  /** Contato de lead fora da carteira do corretor: exibe com cadeado + desfoque. */
+  isProtected?: boolean;
+}) {
   if (!value) return null;
   return (
     <div className="min-w-0">
       <p className="text-[11px] uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="break-words text-sm text-foreground">{value}</p>
+      <p className="break-words text-sm text-foreground">
+        <ProtectedContact value={value} isProtected={isProtected} />
+      </p>
     </div>
+  );
+}
+
+/**
+ * "Informações do Lead": só o nome fica em evidência; o resto (contato, status, campanha,
+ * respostas do formulário...) aparece ao tocar na setinha. Começa recolhido.
+ */
+function LeadInfo({ lead }: { lead: NotesResponse["lead"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const protectedContact = Boolean(lead.contactProtected);
+  const customFields = Object.entries(lead.customFields ?? {});
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Informações do Lead</h2>
+      <div className="mt-3 rounded-xl border border-[color:var(--color-border-gold)] bg-surface-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls="lead-info-details"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        >
+          <span className="min-w-0 truncate text-lg font-semibold text-foreground">{lead.name}</span>
+          <span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary">
+            {expanded ? "Ocultar" : "Mais informações"}
+            <ChevronDown size={18} className={["text-gold transition-transform", expanded ? "rotate-180" : ""].join(" ")} />
+          </span>
+        </button>
+
+        {expanded && (
+          <div
+            id="lead-info-details"
+            className="grid grid-cols-1 gap-3 border-t border-[color:var(--color-border-gold)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <InfoRow label="Telefone" value={lead.phone} isProtected={protectedContact} />
+            <InfoRow label="E-mail" value={lead.email} isProtected={protectedContact} />
+            <InfoRow label="Status" value={leadStatusLabel(lead.status)} />
+            <InfoRow label="Corretor" value={lead.brokerName} />
+            <InfoRow label="Recebido em" value={when(lead.createdAt)} />
+            <InfoRow label="Campanha" value={lead.campaignName} />
+            <InfoRow label="Anúncio" value={lead.adName} />
+            <InfoRow label="Formulário" value={lead.formName} />
+            {customFields.map(([q, a]) => {
+              const isContact = lead.protectedFieldKeys?.includes(q) ?? false;
+              return (
+                <InfoRow
+                  key={q}
+                  label={formatMetaFieldText(q)}
+                  value={isContact ? String(a) : formatMetaFieldText(String(a))}
+                  isProtected={isContact}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -204,7 +277,6 @@ export function LeadNotesDialog({ leadId, onClose, onChanged }: { leadId: string
   }
 
   const lead = data?.lead;
-  const customFields = Object.entries(lead?.customFields ?? {});
 
   // Portal no <body>: a janela não fica dentro do card arrastável do kanban (selecionar texto
   // aqui não pode iniciar o arrastar do card).
@@ -233,23 +305,7 @@ export function LeadNotesDialog({ leadId, onClose, onChanged }: { leadId: string
 
           {lead && (
             <>
-              <section>
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Informações do Lead</h2>
-                <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[color:var(--color-border-gold)] bg-surface-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <InfoRow label="Nome" value={lead.name} />
-                  <InfoRow label="Telefone" value={lead.phone} />
-                  <InfoRow label="E-mail" value={lead.email} />
-                  <InfoRow label="Status" value={leadStatusLabel(lead.status)} />
-                  <InfoRow label="Corretor" value={lead.brokerName} />
-                  <InfoRow label="Recebido em" value={when(lead.createdAt)} />
-                  <InfoRow label="Campanha" value={lead.campaignName} />
-                  <InfoRow label="Anúncio" value={lead.adName} />
-                  <InfoRow label="Formulário" value={lead.formName} />
-                  {customFields.map(([q, a]) => (
-                    <InfoRow key={q} label={formatMetaFieldText(q)} value={formatMetaFieldText(String(a))} />
-                  ))}
-                </div>
-              </section>
+              <LeadInfo lead={lead} />
 
               <section className="mt-6">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Evolução do atendimento</h2>

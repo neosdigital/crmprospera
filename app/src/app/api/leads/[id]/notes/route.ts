@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession, jsonError } from "@/lib/api";
 import { prisma } from "@crm/db";
 import { addLeadNote, loadLeadForNotes, parseNoteContent } from "@/lib/lead-notes";
+import { applyLeadContactPrivacy } from "@/lib/lead-privacy";
 
 /**
  * Janela "Ver Notas": informações do lead + timeline completa de notas (com o histórico de
@@ -26,12 +27,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
+    // Contato do lead passa pela mesma regra de privacidade do Ao Vivo: corretor que não tem o
+    // lead na carteira recebe telefone/e-mail/respostas de contato já mascarados do servidor.
+    // (Hoje loadLeadForNotes já bloqueia esse corretor; isto é a segunda camada de proteção.)
+    const contact = applyLeadContactPrivacy(
+      { role: session.user.role, brokerId: session.user.brokerId },
+      { currentBrokerId: lead.currentBrokerId, phone: lead.phone, email: lead.email, customFields: lead.customFields }
+    );
+
     return NextResponse.json({
       lead: {
         id: lead.id,
         name: lead.name,
-        phone: lead.phone,
-        email: lead.email,
+        phone: contact.phone,
+        email: contact.email,
+        contactProtected: contact.contactProtected,
+        protectedFieldKeys: contact.protectedFieldKeys,
         campaignName: lead.campaignName,
         adName: lead.adName,
         formName: lead.formName,
@@ -39,7 +50,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         status: lead.status,
         brokerName: lead.currentBroker?.displayName ?? null,
         createdAt: lead.createdAt,
-        customFields: lead.customFields,
+        customFields: contact.customFields,
       },
       notes: notes.map((n) => ({
         id: n.id,
