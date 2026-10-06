@@ -321,6 +321,36 @@ precisa ficar **sempre ativo** — é ele quem expira e transfere leads (e dispa
 "prazo esgotado" por WhatsApp) sem depender do navegador de ninguém estar aberto (seção "o
 sistema continua funcionando mesmo com o navegador fechado").
 
+## Backup diário
+
+`npm run backup` (na raiz) gera um arquivo `crm-prospera-backup-AAAA-MM-DD_HH-mm.json.gz` com
+**todas as tabelas e registros** do banco (as tabelas são descobertas pelo catálogo do Postgres,
+então tabelas novas entram sozinhas). O script só lê: roda numa transação `READ ONLY` +
+`REPEATABLE READ` (foto consistente) e, depois de gravar, relê o arquivo e confere a contagem de
+cada tabela antes de dar o backup como válido.
+
+- **Destinos**: `Documentos\Backups CRM Prospera` e `G:\Meu Drive\Backups CRM Prospera` (o Google
+  Drive para computador sincroniza sozinho com a nuvem). Outros destinos: variável
+  `BACKUP_DIRS` (separados por `;`).
+- **Automático**: tarefa do Agendador do Windows **"CRM Prospera - Backup diario"**, todo dia às
+  23:30 (`packages/db/scripts/backup-diario.cmd`). Se o computador estiver desligado nesse
+  horário, roda assim que ele ligar.
+- **Conferência**: cada pasta tem `ULTIMO-BACKUP.txt` (data, tamanho, contagens) e `backup.log`
+  (na pasta de Documentos). Se um backup falhar, aparece `BACKUP-COM-ERRO.txt` com o motivo.
+- **Retenção**: mantém 90 dias (no mínimo os 30 backups mais recentes); só apaga arquivos com o
+  nome exato do backup.
+- **Conteúdo sensível**: o arquivo tem os dados de clientes (LGPD) e os hashes de senha; tokens de
+  integrações continuam criptografados. Mantenha a pasta do Drive privada.
+
+**Restaurar** (sempre num banco **novo e vazio** — o script recusa banco que já tenha dados e
+faz tudo numa transação única, conferindo as contagens no final):
+
+```bash
+cd packages/db
+DATABASE_URL="<url-do-banco-novo>" npx prisma migrate deploy     # cria as tabelas (banco em UTF8)
+npm run restore-backup -- --file "<arquivo.json.gz>" --target "<url-do-banco-novo>"
+```
+
 ## Evoluindo o realtime
 
 O polling (2–3s) atende ao requisito de "sem refresh manual", mas para push instantâneo no

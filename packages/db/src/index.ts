@@ -19,3 +19,4 @@ export * from "./quiet-hours";
 export * from "./push";
 export * from "./notification-health";
 export * from "./lost-return";
+export * from "./backup-merge";
