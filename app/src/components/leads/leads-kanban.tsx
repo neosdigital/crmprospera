@@ -7,7 +7,6 @@ import { Phone, MessageCircle, ArrowRightLeft, Check, X, Timer, StickyNote, Bell
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { LeadNotesEditor } from "@/components/leads/lead-notes-editor";
 import { LostReturnDialog } from "@/components/leads/lost-return-dialog";
 import { LeadNotesDialog } from "@/components/leads/lead-notes-dialog";
 import { formatTimeUntilReturn, formatTimeUntilReminder, type LostReturnPeriod } from "@/lib/lost-return";
@@ -218,11 +217,8 @@ function KanbanCard({
           }}
         />
       )}
-
-      <div className="mt-3 border-t border-[color:var(--color-border-gold)]/40 pt-3">
-        {/* key: se a observação for editada pela janela de notas, o campo do card recarrega o texto novo. */}
-        <LeadNotesEditor key={lead.notes ?? ""} leadId={lead.id} initialNotes={lead.notes} onSaved={onSaved} compact />
-      </div>
+      {/* O campo de observação que ficava aqui saiu do card: as notas (inclusive as antigas,
+          como "Observação do card") ficam todas em "Ver Notas", com histórico. */}
     </div>
   );
 }
