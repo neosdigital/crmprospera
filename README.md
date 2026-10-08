@@ -290,6 +290,43 @@ push, só a Meta/WhatsApp.
   "Adicionar à Tela de Início" e Web Push pode não funcionar mesmo instalado. Não é relevante
   pra operação da Próspera (Brasil), mas fica registrado caso o público mude no futuro.
 
+## Healthcheck do site (avisa por WhatsApp se o CRM cair)
+
+Motivado por um incidente real: a assinatura Pro da Vercel foi suspensa por uma falha de
+cobrança e o site ficou fora do ar (`402 Deployment Disabled`) sem que ninguém percebesse na
+hora. Esse healthcheck roda de propósito no **worker** (Railway), não no app (Vercel) — se a
+Vercel cair ou for suspensa, algo hospedado nela não conseguiria avisar ninguém.
+
+- `worker/src/healthcheck.ts`: a cada `HEALTHCHECK_INTERVAL_SECONDS` (padrão 60s), faz um
+  `GET` em `HEALTHCHECK_URL` (padrão a própria URL de produção). Considera "fora do ar" só
+  `402` (suspensão de billing — o caso real que motivou isso), `5xx` ou falha de conexão —
+  qualquer outra resposta (200, redirect pro login, até um 404) conta como "no ar", porque
+  isso não é um teste de corretude da aplicação, só de disponibilidade.
+- Só alerta na **transição de estado**: depois de `HEALTHCHECK_FAILURE_THRESHOLD` checagens
+  seguidas com falha (padrão 3, ~3 minutos), manda um WhatsApp; e manda outro quando voltar ao
+  normal, com o tempo total de indisponibilidade. Nunca manda uma mensagem por checagem — senão
+  vira spam a cada minuto enquanto durar a queda.
+- Reaproveita a integração de WhatsApp já conectada em `/settings/integrations/whatsapp` (mesmo
+  número usado pros avisos de lead) — não precisa configurar um número separado.
+
+### Configurar
+
+1. **Aprovar dois novos templates** em **WhatsApp Manager → Modelos de mensagem** (categoria
+   **Utilidade**, idioma **Português (BR)**), igual aos templates de lead:
+   - `crm_sistema_fora_do_ar`: "⚠️ Alerta CRM Próspera: o sistema está fora do ar desde {{1}}.
+     Motivo detectado: {{2}}."
+   - `crm_sistema_recuperado`: "✅ CRM Próspera voltou ao normal às {{1}}, após {{2}} fora do ar."
+   A aprovação pode levar de minutos a alguns dias; enquanto pendente, o envio do alerta falha
+   silenciosamente (só fica no log do worker), sem derrubar o healthcheck em si.
+2. No ambiente do **worker** (Railway), adicione:
+   ```
+   HEALTHCHECK_URL="https://crmprospera.vercel.app"
+   HEALTHCHECK_INTERVAL_SECONDS=60
+   HEALTHCHECK_FAILURE_THRESHOLD=3
+   HEALTHCHECK_ALERT_PHONE="+5547997580595"
+   ```
+   Deixe `HEALTHCHECK_ALERT_PHONE` vazio para desativar o healthcheck sem remover o código.
+
 ## Segurança e RBAC
 
 - Roles: `OWNER`, `ADMIN`, `BROKER`. Middleware (`src/middleware.ts`) redireciona por role;

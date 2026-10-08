@@ -1,7 +1,9 @@
 import cron from "node-cron";
 import { findExpiredAssignmentIds, expireAndRotate, prisma } from "@crm/db";
+import { runHealthcheck } from "./healthcheck";
 
 const intervalSeconds = Number(process.env.EXPIRATION_CHECK_INTERVAL_SECONDS ?? 15);
+const healthcheckIntervalSeconds = Number(process.env.HEALTHCHECK_INTERVAL_SECONDS ?? 60);
 
 function log(event: string, data: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), scope: "EXPIRATION", event, ...data }));
@@ -38,11 +40,17 @@ async function sweep() {
 // Cadência configurável em segundos (default 15s); node-cron precisa de expressão cron,
 // então convertemos o intervalo em "*/N * * * * *" (segundos) quando N < 60.
 const cronExpression = intervalSeconds < 60 ? `*/${intervalSeconds} * * * * *` : `*/${Math.round(intervalSeconds / 60)} * * * *`;
+const healthcheckCronExpression =
+  healthcheckIntervalSeconds < 60 ? `*/${healthcheckIntervalSeconds} * * * * *` : `*/${Math.round(healthcheckIntervalSeconds / 60)} * * * *`;
 
-log("worker_started", { intervalSeconds, cronExpression });
+log("worker_started", { intervalSeconds, cronExpression, healthcheckIntervalSeconds, healthcheckEnabled: Boolean(process.env.HEALTHCHECK_ALERT_PHONE) });
 
 cron.schedule(cronExpression, () => {
   sweep().catch((error) => log("sweep_fatal_error", { error: String(error) }));
+});
+
+cron.schedule(healthcheckCronExpression, () => {
+  runHealthcheck().catch((error) => log("healthcheck_fatal_error", { error: String(error) }));
 });
 
 async function shutdown() {

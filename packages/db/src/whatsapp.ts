@@ -31,6 +31,18 @@ export const WHATSAPP_TEMPLATES = {
     language: TEMPLATE_LANGUAGE,
     body: "Atenção {{1}}! O lead {{2}} (telefone {{3}}) já passou por toda a equipe sem resposta e voltou para você. Você tem mais {{4}} minutos para entrar em contato.",
   },
+  SYSTEM_DOWN: {
+    name: "crm_sistema_fora_do_ar",
+    category: "UTILITY",
+    language: TEMPLATE_LANGUAGE,
+    body: "⚠️ Alerta CRM Próspera: o sistema está fora do ar desde {{1}}. Motivo detectado: {{2}}.",
+  },
+  SYSTEM_RECOVERED: {
+    name: "crm_sistema_recuperado",
+    category: "UTILITY",
+    language: TEMPLATE_LANGUAGE,
+    body: "✅ CRM Próspera voltou ao normal às {{1}}, após {{2}} fora do ar.",
+  },
 } as const;
 
 function onlyDigits(value: string): string {
@@ -237,5 +249,28 @@ export async function notifyBrokerExpired(params: {
     leadId: params.leadId,
     templateName: WHATSAPP_TEMPLATES.EXPIRED.name,
     bodyParams: [params.brokerName, params.leadName],
+  });
+}
+
+/**
+ * Alerta de infraestrutura (ex.: site fora do ar por suspensão de billing na Vercel),
+ * usado pelo healthcheck do worker — não é vinculado a lead/corretor, por isso não
+ * segue o padrão `sendBestEffort`: usa a integração de WhatsApp ativa de qualquer
+ * organização (hoje só existe a Próspera em produção) apenas como "linha de envio",
+ * e PROPAGA o erro em vez de engolir — quem chama precisa saber se o alerta falhou.
+ */
+export async function sendSystemAlert(params: { to: string; templateName: string; bodyParams: string[] }) {
+  const integration = await prisma.whatsAppIntegration.findFirst({ where: { isActive: true } });
+  if (!integration) {
+    throw new Error("Nenhuma integração de WhatsApp ativa encontrada para enviar o alerta.");
+  }
+
+  const accessToken = decryptSecret(integration.accessTokenEncrypted);
+  return sendTemplateMessage({
+    phoneNumberId: integration.phoneNumberId,
+    accessToken,
+    to: params.to,
+    templateName: params.templateName,
+    bodyParams: params.bodyParams,
   });
 }
