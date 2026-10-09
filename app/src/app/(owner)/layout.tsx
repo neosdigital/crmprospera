@@ -1,16 +1,18 @@
 import { redirect } from "next/navigation";
-import { LayoutDashboard, Users2, RefreshCw, BarChart3, Plug, Settings, Radio, ListChecks, Bell } from "lucide-react";
+import { LayoutDashboard, Users2, RefreshCw, BarChart3, Plug, Settings, Radio, ListChecks, Bell, Kanban } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@crm/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { SignOutButton } from "@/components/layout/sign-out-button";
+import { NotificationHealthBanner } from "@/components/notifications/notification-health-banner";
 
 const ICON_SIZE = 18;
 
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard size={ICON_SIZE} /> },
   { href: "/leads", label: "Leads", icon: <ListChecks size={ICON_SIZE} /> },
+  { href: "/kanban", label: "Kanban", icon: <Kanban size={ICON_SIZE} /> },
   { href: "/live", label: "Ao Vivo", icon: <Radio size={ICON_SIZE} /> },
   { href: "/settings/rotation", label: "Roleta", icon: <RefreshCw size={ICON_SIZE} /> },
   { href: "/settings/brokers", label: "Corretores", icon: <Users2 size={ICON_SIZE} /> },
@@ -35,7 +37,10 @@ export default async function OwnerLayout({ children }: { children: React.ReactN
         signOutSlot={<SignOutButton />}
       />
       <Sidebar items={ITEMS} orgName={org?.name ?? ""} userName={session.user.name ?? ""} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto">
+        <NotificationHealthBanner />
+        {children}
+      </main>
     </div>
   );
 }

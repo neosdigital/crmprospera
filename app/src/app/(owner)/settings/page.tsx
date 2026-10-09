@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@crm/db";
 import { OrgSettingsForm } from "@/components/settings/org-settings-form";
+import { BackupSettings } from "@/components/settings/backup-settings";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -15,6 +16,9 @@ export default async function SettingsPage() {
       <p className="mt-1 text-text-secondary">Preferências gerais da organização.</p>
       <div className="mt-6">
         <OrgSettingsForm initialName={org.name} initialTimeout={org.responseTimeoutMinutes} />
+      </div>
+      <div className="mt-6">
+        <BackupSettings />
       </div>
     </div>
   );

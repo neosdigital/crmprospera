@@ -10,6 +10,7 @@ import { BrokerRanking } from "@/components/dashboard/broker-ranking";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { leadStatusLabel } from "@/lib/labels";
+import { todayBrasiliaISO } from "@/lib/brasilia-time";
 
 type MetricsResponse = {
   kpis: {
@@ -42,7 +43,7 @@ const PERIODS = [
 ];
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return todayBrasiliaISO();
 }
 
 function formatBR(iso: string) {

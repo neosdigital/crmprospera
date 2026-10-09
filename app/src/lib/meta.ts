@@ -134,7 +134,18 @@ export function normalizeFieldData(fieldData: FieldDatum[] | undefined): Record<
 
 const NAME_KEYS = ["full_name", "nome_completo", "nome completo", "nome", "name"];
 const PHONE_KEYS = ["phone_number", "telefone", "phone"];
-const EMAIL_KEYS = ["email"];
+const EMAIL_KEYS = ["email", "e-mail", "e_mail", "work_email", "email_address", "endereço de e-mail", "endereço de email"];
+
+/**
+ * Fallback para e-mail vindo de pergunta personalizada com outro nome ("Seu melhor e-mail",
+ * "email_comercial"...): qualquer campo cujo nome mencione "mail" e cujo valor pareça um e-mail.
+ */
+function pickEmailFallback(fieldData: FieldDatum[] | undefined): string | undefined {
+  const match = fieldData?.find(
+    (f) => f.name.toLowerCase().includes("mail") && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.values?.[0]?.trim() ?? "")
+  );
+  return match?.values?.[0]?.trim();
+}
 
 function pickField(fieldData: FieldDatum[] | undefined, keys: string[]): string | undefined {
   for (const key of keys) {
@@ -148,6 +159,6 @@ export function extractContactInfo(fieldData: FieldDatum[] | undefined) {
   return {
     name: pickField(fieldData, NAME_KEYS) ?? "Lead sem nome",
     phone: pickField(fieldData, PHONE_KEYS),
-    email: pickField(fieldData, EMAIL_KEYS),
+    email: pickField(fieldData, EMAIL_KEYS) ?? pickEmailFallback(fieldData),
   };
 }

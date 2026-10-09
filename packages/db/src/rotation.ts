@@ -2,6 +2,8 @@ import { prisma } from "./index";
 import { AssignmentStatus, LeadStatus, AuditAction } from "@prisma/client";
 import type { Prisma, LeadAssignment } from "@prisma/client";
 import { notifyBrokerNewAssignment, notifyBrokerExpired, hasActiveWhatsAppIntegration } from "./whatsapp";
+import { notifyBrokerTurnPush, notifyRemarketingReminder } from "./push";
+import { isQuietHours } from "./quiet-hours";
 
 type Tx = Prisma.TransactionClient;
 
@@ -62,7 +64,18 @@ async function pickNextBroker(tx: Tx, organizationId: string, afterPosition: num
  */
 export async function assignNextLead(
   tx: Tx,
-  params: { organizationId: string; leadId: string; timeoutMinutes: number }
+  params: {
+    organizationId: string;
+    leadId: string;
+    timeoutMinutes: number;
+    /**
+     * Distribui como se fosse um lead novo (ponteiro global da roleta), mesmo que o lead já
+     * tenha tentativas antigas — usado quando um lead "Perdido" volta para a roleta na data
+     * agendada: ele entra de novo no fluxo normal, na vez de quem estiver na fila, e não
+     * continua a escalação antiga. As tentativas antigas ficam no histórico (attemptNumber segue crescendo).
+     */
+    restartDistribution?: boolean;
+  }
 ) {
   const { organizationId, leadId } = params;
 
@@ -71,13 +84,13 @@ export async function assignNextLead(
     orderBy: { attemptNumber: "desc" },
   });
   const attemptNumber = (lastAttempt?.attemptNumber ?? 0) + 1;
-  const isNewLead = !lastAttempt;
+  const isNewLead = !lastAttempt || params.restartDistribution === true;
 
   let afterPosition = 0;
   if (isNewLead) {
     const rotationState = await tx.rotationState.findUnique({ where: { organizationId } });
     afterPosition = rotationState?.currentPosition ?? 0;
-  } else {
+  } else if (lastAttempt) {
     const lastBroker = await tx.broker.findUnique({
       where: { id: lastAttempt.brokerId },
       select: { rotationPosition: true },
@@ -163,36 +176,56 @@ async function isFirstAttemptForBroker(leadId: string, brokerId: string, attempt
 }
 
 /**
- * Notifica o corretor recém-atribuído por WhatsApp. Chamada sempre FORA da transação
+ * Notifica SOMENTE o corretor que ficou com a vez (a tentativa recém-criada) — por push e,
+ * se configurado, por WhatsApp. Chamada a CADA nova tentativa, de qualquer origem: lead novo
+ * (distributeNewLead), prazo do anterior venceu (expireAndRotate — worker, varredura das
+ * rotas GET) e "devolver para a roleta" (returnLeadToRotation). Sempre FORA da transação
  * (depois do commit) — nunca faz chamada de rede externa dentro de uma transação
- * interativa do Postgres. Best-effort: erros ficam só nos logs/audit_logs de whatsapp.ts,
- * nunca propagam para quem chamou (a atribuição já está gravada e vale independente
- * do WhatsApp ter saído ou não). Se a roleta já tinha passado por este corretor antes
- * (volta completa sem ninguém responder), envia o template RETURNED em vez do de "novo
- * lead" — assim ele ainda é avisado a cada volta, mas com uma mensagem diferente, não um
- * flood da mesma mensagem repetida (ver isFirstAttemptForBroker).
+ * interativa do Postgres. Best-effort: nunca propaga erro para quem chamou (a atribuição
+ * já está gravada e vale independente do aviso ter saído ou não).
+ *
+ * Se a roleta já tinha passado por este corretor antes (volta completa sem ninguém
+ * responder), o aviso é o de "sua vez novamente" (push) / template RETURNED (WhatsApp) em
+ * vez do de "novo lead" (ver isFirstAttemptForBroker). O push de cada volta substitui a
+ * notificação anterior desse lead no aparelho do corretor (mesma tag, ver push.ts).
  */
 async function notifyAssignmentCreated(organizationId: string, assignment: LeadAssignment) {
-  if (!(await hasActiveWhatsAppIntegration(organizationId))) return;
+  try {
+    const [broker, lead, org, isFirst, hasWhatsApp] = await Promise.all([
+      prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
+      prisma.lead.findUnique({ where: { id: assignment.leadId } }),
+      prisma.organization.findUnique({ where: { id: organizationId } }),
+      isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber),
+      hasActiveWhatsAppIntegration(organizationId),
+    ]);
+    if (!broker || !lead || !org) return;
 
-  const [broker, lead, org, isFirst] = await Promise.all([
-    prisma.broker.findUnique({ where: { id: assignment.brokerId } }),
-    prisma.lead.findUnique({ where: { id: assignment.leadId } }),
-    prisma.organization.findUnique({ where: { id: organizationId } }),
-    isFirstAttemptForBroker(assignment.leadId, assignment.brokerId, assignment.attemptNumber),
-  ]);
-  if (!broker || !lead || !org) return;
-
-  await notifyBrokerNewAssignment({
-    organizationId,
-    leadId: lead.id,
-    brokerPhone: broker.phone,
-    brokerName: broker.displayName,
-    leadName: lead.name,
-    leadPhone: lead.phone,
-    timeoutMinutes: org.responseTimeoutMinutes,
-    isReturning: !isFirst,
-  });
+    await Promise.all([
+      notifyBrokerTurnPush({
+        organizationId,
+        assignmentId: assignment.id,
+        leadId: lead.id,
+        leadName: lead.name,
+        brokerId: assignment.brokerId,
+        timeoutMinutes: org.responseTimeoutMinutes,
+        isReturning: !isFirst,
+      }),
+      hasWhatsApp
+        ? notifyBrokerNewAssignment({
+            organizationId,
+            leadId: lead.id,
+            brokerPhone: broker.phone,
+            brokerName: broker.displayName,
+            leadName: lead.name,
+            leadPhone: lead.phone,
+            timeoutMinutes: org.responseTimeoutMinutes,
+            isReturning: !isFirst,
+          })
+        : undefined,
+    ]);
+  } catch (error) {
+    console.error("[rotation] falha ao notificar corretor da vez", { assignmentId: assignment.id, error: String(error) });
+  }
 }
 
 /**
@@ -418,4 +451,322 @@ export async function sweepOrganizationExpirations(organizationId: string) {
       console.error("[rotation] falha ao expirar/rotacionar tentativa", id, error);
     }
   }
+  // Mesma rede de segurança para o retorno agendado dos leads perdidos e os lembretes de remarketing.
+  await returnDueLostLeads(20, organizationId);
+  await sendDueRemarketingReminders(20, organizationId);
+}
+
+/**
+ * Leads em "Remarketing" cujo lembrete já venceu. Como os outros avisos, não dispara entre
+ * 23h e 07h — o lembrete espera até as 07h para o corretor não perdê-lo de madrugada.
+ */
+export async function findDueRemarketingLeadIds(limit = 50, organizationId?: string, now = new Date()): Promise<string[]> {
+  if (isQuietHours(now)) return [];
+  const rows = await prisma.lead.findMany({
+    where: {
+      status: LeadStatus.REMARKETING,
+      remarketingNotifyAt: { lte: now },
+      ...(organizationId ? { organizationId } : {}),
+    },
+    orderBy: { remarketingNotifyAt: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Envia UM lembrete de remarketing para o corretor que está com o lead e limpa a data (um
+ * lembrete por agendamento). Idempotente: revalida com lock — se o lead saiu de
+ * "Remarketing", foi reagendado ou outro processo já enviou, não faz nada. O lead continua
+ * na carteira do mesmo corretor.
+ */
+export async function sendRemarketingReminder(leadId: string, now = new Date()) {
+  const due = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM leads WHERE id = ${leadId} FOR UPDATE`;
+    if (rows.length === 0) return null;
+
+    const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+    if (lead.status !== LeadStatus.REMARKETING || !lead.remarketingNotifyAt || lead.remarketingNotifyAt > now) return null;
+
+    await tx.lead.update({ where: { id: leadId }, data: { remarketingNotifyAt: null } });
+    await tx.auditLog.create({
+      data: {
+        organizationId: lead.organizationId,
+        leadId,
+        action: AuditAction.STATUS_CHANGED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: {
+          reason: "remarketing_reminder",
+          scheduledFor: lead.remarketingNotifyAt.toISOString(),
+          brokerId: lead.currentBrokerId,
+        },
+      },
+    });
+    return lead;
+  }, TX_OPTIONS);
+
+  if (!due) return null;
+  if (due.currentBrokerId) {
+    await notifyRemarketingReminder({
+      organizationId: due.organizationId,
+      leadId: due.id,
+      leadName: due.name,
+      brokerId: due.currentBrokerId,
+    });
+  }
+  return due;
+}
+
+/** Varredura dos lembretes de remarketing (worker a cada ciclo + rotas GET como rede de segurança). */
+export async function sendDueRemarketingReminders(limit = 50, organizationId?: string) {
+  const ids = await findDueRemarketingLeadIds(limit, organizationId);
+  let sent = 0;
+  for (const id of ids) {
+    try {
+      if (await sendRemarketingReminder(id)) sent += 1;
+    } catch (error) {
+      console.error("[rotation] falha ao enviar lembrete de remarketing", id, error);
+    }
+  }
+  return sent;
+}
+
+/**
+ * Leads em "Perdidos" cuja data de retorno já chegou. Só roda fora do horário de silêncio
+ * (23h–07h): um lead que voltasse de madrugada daria voltas na roleta sem ninguém ser
+ * avisado e a "segunda chance" se perderia — então ele espera até as 07h.
+ */
+export async function findDueLostLeadIds(limit = 50, organizationId?: string, now = new Date()): Promise<string[]> {
+  if (isQuietHours(now)) return [];
+  const rows = await prisma.lead.findMany({
+    where: {
+      status: LeadStatus.LOST,
+      returnToRotationAt: { lte: now },
+      ...(organizationId ? { organizationId } : {}),
+    },
+    orderBy: { returnToRotationAt: "asc" },
+    take: limit,
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Devolve UM lead perdido para a roleta existente quando a data agendada chega. É o mesmo
+ * registro de lead (nada é duplicado): limpa a data de retorno e chama assignNextLead com
+ * restartDistribution, que cria uma nova tentativa (attemptNumber continua de onde parou,
+ * então as passagens antigas pelos corretores ficam no histórico) e avisa o corretor da vez
+ * como qualquer atribuição. Idempotente: revalida tudo dentro da transação com lock — se o
+ * lead saiu de "Perdidos" ou o retorno foi reagendado nesse meio-tempo, não faz nada.
+ */
+export async function returnLostLeadToRotation(leadId: string, now = new Date()) {
+  const target = await prisma.lead.findUnique({ where: { id: leadId }, select: { organizationId: true } });
+  if (!target) return null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Mesma ordem de lock das outras rotas (rotation_state da organização primeiro, depois o
+    // lead), para não haver deadlock com distribuições/expirações concorrentes.
+    await tx.$queryRaw`SELECT id FROM rotation_state WHERE organization_id = ${target.organizationId} FOR UPDATE`;
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM leads WHERE id = ${leadId} FOR UPDATE`;
+    if (rows.length === 0) return null;
+
+    const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+    if (lead.status !== LeadStatus.LOST || !lead.returnToRotationAt || lead.returnToRotationAt > now) return null;
+
+    await tx.lead.update({ where: { id: leadId }, data: { returnToRotationAt: null } });
+    await tx.auditLog.create({
+      data: {
+        organizationId: lead.organizationId,
+        leadId,
+        action: AuditAction.STATUS_CHANGED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: {
+          from: LeadStatus.LOST,
+          reason: "lost_return_to_rotation",
+          scheduledFor: lead.returnToRotationAt.toISOString(),
+          previousBrokerId: lead.currentBrokerId,
+        },
+      },
+    });
+
+    const org = await tx.organization.findUniqueOrThrow({ where: { id: lead.organizationId } });
+    const assignment = await assignNextLead(tx, {
+      organizationId: lead.organizationId,
+      leadId,
+      timeoutMinutes: org.responseTimeoutMinutes,
+      restartDistribution: true,
+    });
+    return { organizationId: lead.organizationId, assignment };
+  }, TX_OPTIONS);
+
+  if (result?.assignment) await notifyAssignmentCreated(result.organizationId, result.assignment);
+  return result;
+}
+
+/** Varredura dos retornos agendados (worker a cada ciclo + rotas GET como rede de segurança). */
+export async function returnDueLostLeads(limit = 50, organizationId?: string) {
+  const ids = await findDueLostLeadIds(limit, organizationId);
+  let returned = 0;
+  for (const id of ids) {
+    try {
+      if (await returnLostLeadToRotation(id)) returned += 1;
+    } catch (error) {
+      console.error("[rotation] falha ao devolver lead perdido para a roleta", id, error);
+    }
+  }
+  return returned;
+}
+
+export class ManualAssignError extends Error {
+  code: "NOT_FOUND" | "BROKER_NOT_FOUND" | "BROKER_INACTIVE";
+  constructor(code: "NOT_FOUND" | "BROKER_NOT_FOUND" | "BROKER_INACTIVE", message: string) {
+    super(message);
+    this.code = code;
+    this.name = "ManualAssignError";
+  }
+}
+
+// Status "de roleta": o lead ainda não está na carteira de ninguém. Direcionar manualmente um
+// lead nesses status coloca ele direto em IN_PROGRESS; se já estiver numa etapa do kanban
+// (qualificado, agendado, convertido, perdido), a etapa é mantida e só o corretor muda.
+const PRE_WALLET_STATUSES: LeadStatus[] = [
+  LeadStatus.NEW,
+  LeadStatus.WAITING_ASSIGNMENT,
+  LeadStatus.ASSIGNED,
+  LeadStatus.CONTACTED,
+  LeadStatus.EXPIRED,
+];
+
+/**
+ * Encerra a tentativa ativa (se houver) de um lead como TRANSFERRED, para o worker de
+ * expiração não rotacionar mais esse lead. Retorna o corretor da tentativa encerrada.
+ * Deve rodar dentro de uma transação com rotation_state da organização bloqueado.
+ */
+async function closeActiveAssignment(tx: Tx, organizationId: string, leadId: string) {
+  const rows = await tx.$queryRaw<{ id: string; broker_id: string }[]>`
+    SELECT id, broker_id FROM lead_assignments
+    WHERE lead_id = ${leadId} AND organization_id = ${organizationId} AND status = 'ASSIGNED'
+    FOR UPDATE
+  `;
+  if (rows.length === 0) return;
+  await tx.leadAssignment.updateMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    data: { status: AssignmentStatus.TRANSFERRED, responseType: "MANUAL_TRANSFER" },
+  });
+}
+
+/**
+ * Direcionamento manual pelo dono/admin: coloca o lead direto na carteira do corretor
+ * escolhido, sem cronômetro e sem passar pela roleta. Não cria lead_assignment (que
+ * representa uma tentativa com prazo da roleta e alimenta as métricas de tempo de
+ * resposta/taxa de resposta) — o vínculo fica em lead.current_broker_id e o histórico no
+ * audit_log (TRANSFERRED com manual: true). Se o lead estava com uma tentativa ativa na
+ * roleta, ela é encerrada como TRANSFERRED para o worker não mexer mais nele.
+ */
+export async function assignLeadManually(params: {
+  organizationId: string;
+  leadId: string;
+  brokerId: string;
+  userId: string;
+}) {
+  const { organizationId, leadId, brokerId, userId } = params;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM rotation_state WHERE organization_id = ${organizationId} FOR UPDATE`;
+
+    const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!lead) throw new ManualAssignError("NOT_FOUND", "Lead não encontrado.");
+
+    const broker = await tx.broker.findFirst({ where: { id: brokerId, organizationId } });
+    if (!broker) throw new ManualAssignError("BROKER_NOT_FOUND", "Corretor não encontrado.");
+    if (broker.status === "INACTIVE") {
+      throw new ManualAssignError("BROKER_INACTIVE", "Este corretor está inativo.");
+    }
+
+    await closeActiveAssignment(tx, organizationId, leadId);
+
+    const updated = await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        currentBrokerId: broker.id,
+        status: PRE_WALLET_STATUSES.includes(lead.status) ? LeadStatus.IN_PROGRESS : lead.status,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        leadId,
+        userId,
+        action: AuditAction.TRANSFERRED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: { manual: true, fromBrokerId: lead.currentBrokerId, toBrokerId: broker.id },
+      },
+    });
+
+    return { lead: updated, broker };
+  }, TX_OPTIONS);
+}
+
+/**
+ * "Devolver para a roleta": tira o lead de quem estiver com ele e dispara uma nova
+ * tentativa com prazo para o próximo corretor elegível (mesma regra de assignNextLead),
+ * com o aviso de WhatsApp de sempre.
+ */
+export async function returnLeadToRotation(params: { organizationId: string; leadId: string; userId: string }) {
+  const { organizationId, leadId, userId } = params;
+
+  const assignment = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM rotation_state WHERE organization_id = ${organizationId} FOR UPDATE`;
+
+    const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!lead) throw new ManualAssignError("NOT_FOUND", "Lead não encontrado.");
+
+    await closeActiveAssignment(tx, organizationId, leadId);
+
+    const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId } });
+    const next = await assignNextLead(tx, { organizationId, leadId, timeoutMinutes: org.responseTimeoutMinutes });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId,
+        leadId,
+        userId,
+        action: AuditAction.TRANSFERRED,
+        entityType: "lead",
+        entityId: leadId,
+        metadata: { manual: true, returnedToRotation: true, fromBrokerId: lead.currentBrokerId, toBrokerId: next?.brokerId ?? null },
+      },
+    });
+
+    return next;
+  }, TX_OPTIONS);
+
+  if (assignment) await notifyAssignmentCreated(organizationId, assignment);
+  return assignment;
+}
+
+/**
+ * Quantos corretores ainda vão receber este lead antes de chegar a vez de `myPosition`,
+ * seguindo exatamente a ordem da roleta (pickNextBroker: posição crescente com wraparound,
+ * pulando quem está pausado/fora da roleta). Conta o corretor que está com o lead agora +
+ * os elegíveis entre ele e mim. Ex.: roleta 1..7, lead com o #3, eu sou o #5 → 2 (o #3 e o #4).
+ * Retorna null se eu não estou elegível na roleta (pausado) ou se o lead já está comigo.
+ */
+export function brokersAheadInRotation(
+  eligiblePositions: number[],
+  currentPosition: number,
+  myPosition: number
+): number | null {
+  if (!eligiblePositions.includes(myPosition) || currentPosition === myPosition) return null;
+  const between = eligiblePositions.filter((p) =>
+    currentPosition < myPosition
+      ? p > currentPosition && p < myPosition
+      : p > currentPosition || p < myPosition
+  ).length;
+  return 1 + between;
 }

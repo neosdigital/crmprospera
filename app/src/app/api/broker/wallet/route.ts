@@ -17,13 +17,15 @@ export async function GET() {
     const leads = await db.lead.findMany({
       where: {
         currentBrokerId: session.user.brokerId,
-        status: { in: ["IN_PROGRESS", "QUALIFIED", "SCHEDULED", "CONVERTED", "LOST"] },
+        status: { in: ["IN_PROGRESS", "QUALIFIED", "SCHEDULED", "CONVERTED", "LOST", "REMARKETING"] },
       },
       orderBy: { updatedAt: "desc" },
       take: 200,
+      include: { _count: { select: { noteEntries: true } } },
     });
 
-    return NextResponse.json({ leads });
+    // noteCount decide o botão do card: "Ver Notas" (tem notas) ou "Adicionar Notas".
+    return NextResponse.json({ leads: leads.map(({ _count, ...lead }) => ({ ...lead, noteCount: _count.noteEntries })) });
   } catch (error) {
     return jsonError(error);
   }

@@ -11,6 +11,7 @@ import { PushNotificationBanner } from "@/components/notifications/push-notifica
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { formatMetaFieldText } from "@/lib/format-text";
+import { ProtectedContact } from "@/components/leads/protected-contact";
 
 type LiveLead = {
   id: string;
@@ -19,6 +20,9 @@ type LiveLead = {
   email: string | null;
   campaignName: string | null;
   customFields: Record<string, unknown>;
+  /** Corretor vendo lead de outro: telefone/e-mail já vêm mascarados do servidor. */
+  contactProtected?: boolean;
+  protectedFieldKeys?: string[];
   status: string;
   brokerName: string | null;
   assignedAt: string | null;
@@ -107,7 +111,7 @@ function BrokersPassedSummary({ count, names }: { count: number; names: string[]
     return (
       <div className="mt-3 flex items-center gap-1.5 text-xs text-text-secondary">
         <Users size={12} />
-        Ainda no 1º corretor
+        Ainda no 1º corretor{names[0] ? ` (${names[0]})` : ""}
       </div>
     );
   }
@@ -153,12 +157,12 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
       <div className="mt-3 space-y-1 text-xs text-text-secondary">
         {lead.phone && (
           <p className="flex items-center gap-1.5">
-            <Phone size={12} /> {lead.phone}
+            <Phone size={12} /> <ProtectedContact value={lead.phone} isProtected={Boolean(lead.contactProtected)} />
           </p>
         )}
         {lead.email && (
           <p className="flex items-center gap-1.5">
-            <Mail size={12} /> {lead.email}
+            <Mail size={12} /> <ProtectedContact value={lead.email} isProtected={Boolean(lead.contactProtected)} />
           </p>
         )}
         {lead.campaignName && (
@@ -173,7 +177,13 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
           {customFieldsEntries.map(([q, a]) => (
             <p key={q} className="text-xs">
               <span className="text-text-secondary">{formatMetaFieldText(q)}: </span>
-              <span className="text-foreground">{formatMetaFieldText(String(a))}</span>
+              <span className="text-foreground">
+                {lead.protectedFieldKeys?.includes(q) ? (
+                  <ProtectedContact value={String(a)} isProtected />
+                ) : (
+                  formatMetaFieldText(String(a))
+                )}
+              </span>
             </p>
           ))}
         </div>
@@ -192,7 +202,13 @@ function LiveCard({ lead, offsetMs }: { lead: LiveLead; offsetMs: number }) {
   );
 }
 
-export function LiveView() {
+/**
+ * `mode="broker"`: versão do corretor (/broker/live) — só leitura, sem o botão de lead
+ * fictício e SEM som/notificação de navegador para leads novos: o corretor só é avisado
+ * quando o lead cai na vez dele (push da roleta), nunca por lead que está com outro.
+ */
+export function LiveView({ mode = "owner" }: { mode?: "owner" | "broker" }) {
+  const isBroker = mode === "broker";
   const { data, mutate } = useSWR<LiveResponse>("/api/dashboard/live", fetcher, { refreshInterval: 2500 });
 
   const [offsetMs, setOffsetMs] = useState(0);
@@ -207,6 +223,7 @@ export function LiveView() {
   useNewItemAlert(
     activeLeads.map((l) => l.id),
     {
+      enabled: !isBroker,
       notify: (newIds) => {
         const first = activeLeads.find((l) => newIds.includes(l.id));
         if (first) showLeadNotification("Novo lead recebido", `${first.name} entrou na roleta de atendimento.`);
@@ -222,7 +239,7 @@ export function LiveView() {
           <h1 className="text-2xl font-semibold text-foreground">Atendimento ao vivo</h1>
           <p className="mt-1 text-text-secondary">Acompanhe em tempo real onde cada lead está agora.</p>
         </div>
-        <SendTestLeadButton onSent={() => mutate()} />
+        {!isBroker && <SendTestLeadButton onSent={() => mutate()} />}
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

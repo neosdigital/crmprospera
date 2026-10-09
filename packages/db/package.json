@@ -10,16 +10,20 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "studio": "prisma studio",
-    "seed": "tsx seed.ts"
+    "seed": "tsx seed.ts",
+    "backup": "tsx scripts/backup.ts",
+    "restore-backup": "tsx scripts/restore-backup.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.3.1"
+    "@prisma/client": "^6.3.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "prisma": "^6.3.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "bcryptjs": "^2.4.3",
-    "@types/bcryptjs": "^2.4.6"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/web-push": "^3.6.4"
   }
 }

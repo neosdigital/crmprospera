@@ -4,10 +4,11 @@ import { redirect } from "next/navigation";
 import { scopedDb } from "@/lib/tenant-db";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { format } from "date-fns";
+import { formatBrasilia } from "@/lib/brasilia-time";
 import { leadStatusLabel } from "@/lib/labels";
 import { SendTestLeadButton } from "@/components/leads/send-test-lead-button";
 import { LeadsTable, type LeadRow } from "@/components/leads/leads-table";
+import { AddLeadForm } from "@/components/leads/add-lead-form";
 
 const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   NEW: "neutral",
@@ -20,21 +21,23 @@ const STATUS_TONE: Record<string, "neutral" | "gold" | "success" | "danger"> = {
   CONVERTED: "success",
   LOST: "danger",
   EXPIRED: "danger",
+  REMARKETING: "gold",
 };
 
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; status?: string }>;
+  searchParams: Promise<{ search?: string; status?: string; withNotes?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const { search, status } = await searchParams;
+  const { search, status, withNotes } = await searchParams;
   const db = scopedDb(session.user.organizationId);
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
+  if (withNotes) where.AND = [{ notes: { not: null } }, { notes: { not: "" } }];
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -43,12 +46,19 @@ export default async function LeadsPage({
     ];
   }
 
-  const leads = await db.lead.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: { currentBroker: { select: { displayName: true } } },
-  });
+  const [leads, brokers] = await Promise.all([
+    db.lead.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { currentBroker: { select: { displayName: true } } },
+    }),
+    db.broker.findMany({
+      where: { status: { not: "INACTIVE" } },
+      orderBy: { displayName: "asc" },
+      select: { id: true, displayName: true, status: true },
+    }),
+  ]);
 
   const rows: LeadRow[] = leads.map((lead) => ({
     id: lead.id,
@@ -56,10 +66,11 @@ export default async function LeadsPage({
     phone: lead.phone,
     campaignName: lead.campaignName,
     brokerName: lead.currentBroker?.displayName ?? null,
+    notes: lead.notes,
     status: lead.status,
     statusLabel: leadStatusLabel(lead.status),
     statusTone: STATUS_TONE[lead.status] ?? "neutral",
-    createdAtLabel: format(lead.createdAt, "dd/MM HH:mm"),
+    createdAtLabel: formatBrasilia(lead.createdAt, "dd/MM HH:mm"),
   }));
 
   return (
@@ -70,6 +81,10 @@ export default async function LeadsPage({
           <p className="mt-1 text-text-secondary">Todos os leads recebidos pela organização.</p>
         </div>
         <SendTestLeadButton />
+      </div>
+
+      <div className="mt-4">
+        <AddLeadForm brokers={brokers} />
       </div>
 
       <form className="mt-6 flex flex-col gap-3 sm:flex-row" method="get">
@@ -86,6 +101,10 @@ export default async function LeadsPage({
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-2 px-1 text-sm text-text-secondary">
+          <input type="checkbox" name="withNotes" value="1" defaultChecked={!!withNotes} className="h-4 w-4 accent-gold" />
+          Só com observação
+        </label>
         <button
           type="submit"
           className="rounded-xl bg-gold px-4 py-2.5 text-sm font-semibold text-[#191919]"

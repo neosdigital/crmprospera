@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import { Phone, MessageCircle, Clock } from "lucide-react";
+import { Phone, MessageCircle, Clock, RefreshCw } from "lucide-react";
 import { fetcher, poster, FetchError } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,7 @@ type LeadAssignment = {
 type MyLeadsResponse = {
   activeAssignments: LeadAssignment[];
   recentHistory: { id: string; status: string; lead: { name: string; phone: string | null; status: string } }[];
+  rotationQueue: { leadId: string; leadName: string; expiresAt: string; brokersAhead: number | null }[];
   soundEnabled: boolean;
   serverNow: string;
 };
@@ -159,6 +160,32 @@ function LeadCard({ assignment, serverOffsetMs, onClaim }: { assignment: LeadAss
   );
 }
 
+/**
+ * Faixa discreta no topo: leads circulando na roleta com outros corretores (ninguém pegou
+ * ainda) e quantos corretores faltam até a vez deste. Só aparece quando há algum.
+ */
+function RotationQueue({ items }: { items: MyLeadsResponse["rotationQueue"] }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-1.5 rounded-xl border border-[color:var(--color-border-gold)] bg-surface px-3 py-2.5">
+      {items.map((item) => (
+        <p key={item.leadId} className="flex items-start gap-2 text-xs text-text-secondary">
+          <RefreshCw size={12} className="mt-0.5 shrink-0 text-gold" />
+          <span>
+            Lead <span className="font-medium text-foreground">{item.leadName}</span> está disponível na roleta
+            {item.brokersAhead !== null &&
+              (item.brokersAhead === 1
+                ? ", falta 1 corretor para chegar na sua vez"
+                : `, faltam ${item.brokersAhead} corretores para chegar na sua vez`)}
+            .
+          </span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function BrokerDashboard({ brokerFirstName }: { brokerFirstName: string }) {
   const { data, mutate, isLoading } = useSWR<MyLeadsResponse>("/api/broker/my-leads", fetcher, {
     refreshInterval: 3000,
@@ -189,7 +216,8 @@ export function BrokerDashboard({ brokerFirstName }: { brokerFirstName: string }
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
       <PushNotificationBanner />
-      <h1 className="text-2xl font-semibold text-foreground">Olá, {brokerFirstName}.</h1>
+      <RotationQueue items={data?.rotationQueue ?? []} />
+      <h1 className="mt-4 text-2xl font-semibold text-foreground">Olá, {brokerFirstName}.</h1>
       <p className="mt-1 text-text-secondary">
         {isLoading
           ? "Carregando seus leads..."

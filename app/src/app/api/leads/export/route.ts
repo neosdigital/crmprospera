@@ -1,9 +1,10 @@
 import { requireSession, jsonError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
+import { brasiliaDayRange, formatBrasilia } from "@/lib/brasilia-time";
 
 function csvEscape(value: unknown) {
   const s = value === null || value === undefined ? "" : String(value);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
@@ -22,9 +23,10 @@ export async function GET(req: Request) {
     if (status) where.status = status;
     if (brokerId) where.currentBrokerId = brokerId;
     if (from || to) {
+      // Datas "YYYY-MM-DD" = dia inteiro no horário de Brasília; outros formatos seguem como antes.
       where.createdAt = {
-        ...(from ? { gte: new Date(from) } : {}),
-        ...(to ? { lte: new Date(to) } : {}),
+        ...(from ? { gte: brasiliaDayRange(from)?.start ?? new Date(from) } : {}),
+        ...(to ? { lte: brasiliaDayRange(to)?.end ?? new Date(to) } : {}),
       };
     }
 
@@ -34,9 +36,9 @@ export async function GET(req: Request) {
       include: { currentBroker: { select: { displayName: true } } },
     });
 
-    const header = ["Nome", "Telefone", "Email", "Campanha", "Corretor", "Status", "Recebido em"];
+    const header = ["Nome", "Telefone", "Email", "Campanha", "Corretor", "Status", "Observação", "Recebido em"];
     const rows = leads.map((l) =>
-      [l.name, l.phone, l.email, l.campaignName, l.currentBroker?.displayName, l.status, l.createdAt.toISOString()]
+      [l.name, l.phone, l.email, l.campaignName, l.currentBroker?.displayName, l.status, l.notes, formatBrasilia(l.createdAt, "dd/MM/yyyy HH:mm")]
         .map(csvEscape)
         .join(",")
     );

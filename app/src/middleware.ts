@@ -12,6 +12,7 @@ export default auth((req) => {
   const isOwnerArea =
     nextUrl.pathname.startsWith("/dashboard") ||
     nextUrl.pathname.startsWith("/leads") ||
+    nextUrl.pathname.startsWith("/kanban") ||
     nextUrl.pathname.startsWith("/live") ||
     nextUrl.pathname.startsWith("/settings");
   const isBrokerArea = nextUrl.pathname.startsWith("/broker");
@@ -40,6 +41,7 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/leads/:path*",
+    "/kanban/:path*",
     "/live/:path*",
     "/settings/:path*",
     "/broker/:path*",

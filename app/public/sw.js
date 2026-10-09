@@ -19,6 +19,9 @@ self.addEventListener("push", (event) => {
     if (event.data) payload.body = event.data.text();
   }
 
+  // `silent` vem da preferência "Som das notificações" do corretor (servidor decide).
+  const silent = payload.silent === true;
+
   const options = {
     body: payload.body,
     icon: payload.icon || "/icon-192.png",
@@ -26,9 +29,24 @@ self.addEventListener("push", (event) => {
     data: { url: payload.url || "/" },
     tag: payload.tag || "novo-lead",
     renotify: true,
+    // Com o app fechado, o som é o da notificação do sistema (celular/computador). Com som
+    // ativado, pede alerta sonoro + vibração; o volume final depende das configurações do aparelho.
+    silent,
+    vibrate: silent ? undefined : [300, 120, 300, 120, 300],
   };
 
-  event.waitUntil(self.registration.showNotification(payload.title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(payload.title, options),
+      // Com o app ABERTO, o sistema muitas vezes não toca som para a notificação — então
+      // avisa as abas abertas para tocarem o alerta sonoro do próprio app (BrokerAlertListener).
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+        for (const client of clientList) {
+          client.postMessage({ type: "crm-push", title: payload.title, silent });
+        }
+      }),
+    ])
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

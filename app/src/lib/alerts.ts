@@ -10,7 +10,7 @@ let unlocked = false;
  * via polling (sem gesto do usuário naquele momento).
  */
 export function unlockAudio() {
-  if (unlocked) return;
+  if (unlocked && audioCtx?.state === "running") return;
   try {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     audioCtx = audioCtx ?? new Ctx();
@@ -21,8 +21,24 @@ export function unlockAudio() {
   }
 }
 
+/**
+ * true quando o navegador já liberou o áudio (houve interação na página). Antes disso o
+ * alerta não consegue tocar — o BrokerAlertListener mostra um aviso discreto pedindo um toque.
+ */
+export function isAudioReady(): boolean {
+  return audioCtx?.state === "running";
+}
+
+// O mesmo lead pode disparar o alerta por dois caminhos quase juntos (polling do dashboard e
+// mensagem do push via service worker) — evita tocar duas vezes seguidas.
+let lastPlayedAt = 0;
+const MIN_INTERVAL_MS = 3000;
+
 /** Toca um alerta sonoro curto de dois tons (sem depender de nenhum arquivo de áudio externo). */
 export function playLeadAlertSound() {
+  const nowMs = Date.now();
+  if (nowMs - lastPlayedAt < MIN_INTERVAL_MS) return;
+  lastPlayedAt = nowMs;
   try {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     audioCtx = audioCtx ?? new Ctx();

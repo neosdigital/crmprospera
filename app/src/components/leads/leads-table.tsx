@@ -14,6 +14,7 @@ export type LeadRow = {
   phone: string | null;
   campaignName: string | null;
   brokerName: string | null;
+  notes: string | null;
   status: string;
   statusLabel: string;
   statusTone: "neutral" | "gold" | "success" | "danger";
@@ -87,7 +88,7 @@ export function LeadsTable({ leads }: { leads: LeadRow[] }) {
       {errorMsg && <p className="px-4 pb-2 text-xs text-danger">{errorMsg}</p>}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead>
             <tr className="border-b border-[color:var(--color-border-gold)] text-left text-xs uppercase text-text-secondary">
               <th className="w-10 px-4 py-3">
@@ -103,6 +104,7 @@ export function LeadsTable({ leads }: { leads: LeadRow[] }) {
               <th className="px-4 py-3">Telefone</th>
               <th className="px-4 py-3">Campanha</th>
               <th className="px-4 py-3">Corretor</th>
+              <th className="px-4 py-3">Observação</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Recebido em</th>
             </tr>
@@ -130,6 +132,15 @@ export function LeadsTable({ leads }: { leads: LeadRow[] }) {
                 <td className="px-4 py-3 text-text-secondary">{lead.phone ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{lead.campaignName ?? "—"}</td>
                 <td className="px-4 py-3 text-text-secondary">{lead.brokerName ?? "—"}</td>
+                <td className="max-w-[240px] px-4 py-3 text-text-secondary">
+                  {lead.notes ? (
+                    <p className="line-clamp-2 whitespace-pre-line text-xs" title={lead.notes}>
+                      {lead.notes}
+                    </p>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <Badge tone={lead.statusTone}>{lead.statusLabel}</Badge>
                 </td>

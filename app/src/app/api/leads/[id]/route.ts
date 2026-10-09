@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession, jsonError, ApiError } from "@/lib/api";
 import { scopedDb } from "@/lib/tenant-db";
+import { applyLeadContactPrivacy } from "@/lib/lead-privacy";
+import { recordObservationChange } from "@/lib/lead-notes";
+import { prisma } from "@crm/db";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -30,7 +33,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       if (!hasAccess) throw new ApiError(403, "Você não tem acesso a este lead.");
     }
 
-    return NextResponse.json({ lead });
+    // Corretor que só já PASSOU pelo lead (hoje está com outro) recebe o contato mascarado.
+    return NextResponse.json({
+      lead: applyLeadContactPrivacy({ role: session.user.role, brokerId: session.user.brokerId }, lead),
+    });
   } catch (error) {
     return jsonError(error);
   }
@@ -55,9 +61,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       throw new ApiError(403, "Você só pode editar leads atribuídos a você.");
     }
 
-    const updated = await db.lead.update({
-      where: { id },
-      data: { notes },
+    // Atualiza o campo original e registra a mudança na timeline de notas (com histórico de
+    // edição) na mesma transação — os dois ficam sempre iguais.
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.lead.update({ where: { id: lead.id }, data: { notes } });
+      if (notes !== undefined) {
+        await recordObservationChange(tx, {
+          organizationId: session.user.organizationId,
+          leadId: lead.id,
+          userId: session.user.id,
+          previous: lead.notes,
+          next: notes,
+        });
+      }
+      return saved;
     });
 
     return NextResponse.json({ lead: updated });
