@@ -11,6 +11,7 @@ import {
   sendDueRemarketingReminders,
   prisma,
   isPushConfigured,
+  runAdAccountMonitor,
 } from "@crm/db";
 import { runHealthcheck } from "./healthcheck";
 
@@ -93,6 +94,12 @@ cron.schedule(cronExpression, () => {
 
 cron.schedule(healthcheckCronExpression, () => {
   runHealthcheck().catch((error) => log("healthcheck_fatal_error", { error: String(error) }));
+});
+
+// Central Meta Ads: saldo/veiculação da conta de anúncio → push para donos (ver packages/db/src/meta-ads.ts)
+const metaAdsMinutes = Math.max(5, Number(process.env.META_ADS_MONITOR_MINUTES ?? 15));
+cron.schedule(`*/${metaAdsMinutes} * * * *`, () => {
+  runAdAccountMonitor().catch((error) => log("meta_ads_monitor_fatal_error", { error: String(error) }));
 });
 
 async function shutdown() {

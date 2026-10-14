@@ -97,6 +97,7 @@ model Organization {
   auditLogs           AuditLog[]
   pushSubscriptions   PushSubscription[]
   leadNotes           LeadNote[]
+  adAccountMonitor    AdAccountMonitor?
 
   @@map("organizations")
 }
@@ -302,6 +303,33 @@ model MetaIntegration {
 
   @@unique([organizationId, pageId])
   @@map("meta_integrations")
+}
+
+// ============================================================
+// META ADS — acompanhamento de saldo/veiculação da conta de anúncio
+// ============================================================
+
+/// Uma conta de anúncio por organização, lida com token de usuário do sistema da BM do
+/// cliente (nunca o token pessoal da agência). alertState guarda o que já foi avisado,
+/// para o worker não repetir notificação (ver packages/db/src/meta-ads.ts).
+model AdAccountMonitor {
+  id                   String    @id @default(cuid())
+  organizationId       String    @unique @map("organization_id")
+  adAccountId          String    @map("ad_account_id")
+  adAccountName        String?   @map("ad_account_name")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  tokenExpiresAt       DateTime? @map("token_expires_at")
+  dataAccessExpiresAt  DateTime? @map("data_access_expires_at")
+  isActive             Boolean   @default(true) @map("is_active")
+  alertState           Json      @default("{}") @map("alert_state")
+  lastCheckAt          DateTime? @map("last_check_at")
+  lastError            String?   @map("last_error")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("ad_account_monitors")
 }
 
 // ============================================================

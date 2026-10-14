@@ -14,6 +14,7 @@ export default auth((req) => {
     nextUrl.pathname.startsWith("/leads") ||
     nextUrl.pathname.startsWith("/kanban") ||
     nextUrl.pathname.startsWith("/live") ||
+    nextUrl.pathname.startsWith("/meta-ads") ||
     nextUrl.pathname.startsWith("/settings");
   const isBrokerArea = nextUrl.pathname.startsWith("/broker");
   const isLoginPage = nextUrl.pathname === "/login";
@@ -43,6 +44,7 @@ export const config = {
     "/leads/:path*",
     "/kanban/:path*",
     "/live/:path*",
+    "/meta-ads/:path*",
     "/settings/:path*",
     "/broker/:path*",
     "/login",

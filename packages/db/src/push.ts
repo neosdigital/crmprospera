@@ -187,6 +187,32 @@ export async function notifyNewLead(lead: {
 }
 
 /**
+ * Notificação para os DONOS/ADMINS da organização (ex.: alertas da Central Meta Ads).
+ * Devolve true quando tentou enviar e false quando não saiu nada (horário de silêncio
+ * ou sem chaves VAPID) — quem chama usa isso para não marcar o aviso como dado e tentar
+ * de novo na próxima rodada. Nunca lança.
+ */
+export async function notifyOrgAdmins(
+  organizationId: string,
+  payload: { title: string; body: string; url: string; tag?: string }
+): Promise<boolean> {
+  if (isQuietHours()) return false;
+  if (!ensureConfigured()) return false;
+  try {
+    const users = await prisma.user.findMany({
+      where: { organizationId, status: "ACTIVE", role: { in: ["OWNER", "ADMIN"] } },
+      include: { pushSubscriptions: true },
+    });
+    const full: PushPayload = { icon: "/icon-192.png", badge: "/icon-192.png", ...payload };
+    await Promise.allSettled(users.flatMap((user) => user.pushSubscriptions.map((sub) => sendToSubscription(sub, full))));
+    return true;
+  } catch (error) {
+    console.error("[push] falha ao notificar admins", { organizationId, error: String(error) });
+    return false;
+  }
+}
+
+/**
  * Avisa SOMENTE o corretor que está na vez de um lead na roleta — chamado a cada nova
  * tentativa (lead novo, prazo do anterior venceu, volta completa, devolvido para a roleta).
  * Na primeira vez que o corretor vê o lead: "Novo lead na sua vez"; nas voltas seguintes:
