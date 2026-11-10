@@ -22,7 +22,7 @@ type BrokerRow = {
 
 /** Dono/Admin: quem tem acesso à Área do Corretor, status das integrações e atalho para cada carteira. */
 export function PersonalAdmin() {
-  const { data, mutate, isLoading } = useSWR<{ brokers: BrokerRow[] }>("/api/personal/admin/brokers", fetcher, {
+  const { data, mutate, isLoading, error: loadError } = useSWR<{ brokers: BrokerRow[] }>("/api/personal/admin/brokers", fetcher, {
     refreshInterval: 30000,
   });
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,6 +63,11 @@ export function PersonalAdmin() {
 
       {isLoading ? (
         <p className="mt-6 text-text-secondary">Carregando...</p>
+      ) : loadError && !data ? (
+        <Card className="mt-6 text-danger">
+          Não foi possível carregar os corretores: {loadError.message} Se a Área do Corretor acabou de ser publicada, confira se
+          a migração do banco já foi aplicada.
+        </Card>
       ) : brokers.length === 0 ? (
         <Card className="mt-6 text-text-secondary">Nenhum corretor cadastrado.</Card>
       ) : (
