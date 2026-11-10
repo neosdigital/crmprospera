@@ -99,6 +99,15 @@ model Organization {
   leadNotes           LeadNote[]
   adAccountMonitor    AdAccountMonitor?
 
+  // Área do Corretor (módulo isolado) — só relações, nenhuma coluna nova nesta tabela.
+  brokerPersonalAccess  BrokerPersonalAccess[]
+  brokerMetaConnections BrokerMetaConnection[]
+  brokerMetaForms       BrokerMetaForm[]
+  personalLeads         PersonalLead[]
+  personalLeadNotes     PersonalLeadNote[]
+  personalLeadEvents    PersonalLeadEvent[]
+  brokerMetaSyncLogs    BrokerMetaSyncLog[]
+
   @@map("organizations")
 }
 
@@ -119,6 +128,10 @@ model User {
   pushSubscriptions PushSubscription[]
   notesAuthored     LeadNote[]         @relation("LeadNoteAuthor")
   noteRevisions     LeadNoteRevision[] @relation("LeadNoteEditor")
+
+  // Área do Corretor (módulo isolado) — só relações, nenhuma coluna nova nesta tabela.
+  personalNotesAuthored PersonalLeadNote[]  @relation("PersonalLeadNoteAuthor")
+  personalLeadEvents    PersonalLeadEvent[] @relation("PersonalLeadEventUser")
 
   @@index([organizationId])
   @@map("users")
@@ -142,6 +155,11 @@ model Broker {
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   leadsCurrent    Lead[]           @relation("CurrentBroker")
   leadAssignments LeadAssignment[]
+
+  // Área do Corretor (módulo isolado) — só relações, nenhuma coluna nova nesta tabela.
+  personalAccess        BrokerPersonalAccess?
+  brokerMetaConnections BrokerMetaConnection[]
+  personalLeads         PersonalLead[]
 
   @@unique([organizationId, rotationPosition])
   @@index([organizationId])
@@ -402,4 +420,195 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([leadId])
   @@map("audit_logs")
+}
+
+// ============================================================
+// ÁREA DO CORRETOR — captação particular pelo Meta (módulo isolado)
+// ============================================================
+//
+// Tudo aqui é independente da operação geral: os leads particulares NÃO ficam na tabela
+// `leads`, então a roleta, os dashboards, os relatórios e o kanban geral nem os enxergam.
+// O recebimento é feito por consulta periódica aos formulários do corretor (worker), sem
+// passar pelo webhook geral nem exigir mudança no app da Meta. Lógica em
+// packages/db/src/personal-leads.ts.
+
+/// Quem pode usar a Área do Corretor. Fica numa tabela própria (e não numa coluna em
+/// `brokers`) para nenhuma consulta existente de corretor depender desta migração.
+model BrokerPersonalAccess {
+  id              String    @id @default(cuid())
+  organizationId  String    @map("organization_id")
+  brokerId        String    @unique @map("broker_id")
+  enabled         Boolean   @default(false)
+  enabledAt       DateTime? @map("enabled_at")
+  disabledAt      DateTime? @map("disabled_at")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  broker       Broker       @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("broker_personal_access")
+}
+
+/// Uma Página do Facebook do próprio corretor. `status`: ACTIVE | NEEDS_RECONNECT | ERROR |
+/// DISCONNECTED. O token (de Página) fica sempre criptografado.
+model BrokerMetaConnection {
+  id                   String    @id @default(cuid())
+  organizationId       String    @map("organization_id")
+  brokerId             String    @map("broker_id")
+  name                 String
+  accountOwnerName     String?   @map("account_owner_name")
+  pageId               String    @unique @map("page_id")
+  pageName             String?   @map("page_name")
+  adAccountId          String?   @map("ad_account_id")
+  adAccountName        String?   @map("ad_account_name")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  tokenExpiresAt       DateTime? @map("token_expires_at")
+  status               String    @default("ACTIVE")
+  isActive             Boolean   @default(true) @map("is_active")
+  lastSyncAt           DateTime? @map("last_sync_at")
+  lastSyncError        String?   @map("last_sync_error")
+  lastLeadAt           DateTime? @map("last_lead_at")
+  createdByUserId      String?   @map("created_by_user_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  broker       Broker              @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  forms        BrokerMetaForm[]
+  leads        PersonalLead[]
+  syncLogs     BrokerMetaSyncLog[]
+
+  @@index([organizationId, brokerId])
+  @@index([isActive, status])
+  @@map("broker_meta_connections")
+}
+
+/// Formulário de Lead Ads da Página do corretor. `syncCursor` = data do lead mais recente já
+/// importado; a próxima consulta busca só o que veio depois (com uma margem de segurança).
+model BrokerMetaForm {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  connectionId   String    @map("connection_id")
+  formId         String    @map("form_id")
+  formName       String?   @map("form_name")
+  isActive       Boolean   @default(true) @map("is_active")
+  syncCursor     DateTime? @map("sync_cursor")
+  lastPolledAt   DateTime? @map("last_polled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   BrokerMetaConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, formId])
+  @@index([organizationId])
+  @@map("broker_meta_forms")
+}
+
+/// Lead da carteira particular de um corretor. Nunca entra na roleta nem é transferido.
+/// Idempotência: (organization_id, meta_lead_id) é único.
+model PersonalLead {
+  id                  String     @id @default(cuid())
+  organizationId      String     @map("organization_id")
+  brokerId            String     @map("broker_id")
+  connectionId        String?    @map("connection_id")
+  sourceType          String     @default("BROKER_PERSONAL_META") @map("source_type")
+  metaLeadId          String?    @map("meta_lead_id")
+  name                String
+  phone               String?
+  email               String?
+  platform            String?
+  pageId              String?    @map("page_id")
+  adAccountId         String?    @map("ad_account_id")
+  campaignId          String?    @map("campaign_id")
+  campaignName        String?    @map("campaign_name")
+  adsetId             String?    @map("adset_id")
+  adsetName           String?    @map("adset_name")
+  adId                String?    @map("ad_id")
+  adName              String?    @map("ad_name")
+  formId              String?    @map("form_id")
+  formName            String?    @map("form_name")
+  customFields        Json       @default("{}") @map("custom_fields")
+  rawData             Json       @default("{}") @map("raw_data")
+  status              LeadStatus @default(NEW)
+  remarketingNotifyAt DateTime?  @map("remarketing_notify_at")
+  firstContactAt      DateTime?  @map("first_contact_at")
+  convertedAt         DateTime?  @map("converted_at")
+  /// Quando o lead foi gerado na Meta (created_time do formulário).
+  createdAt           DateTime   @default(now()) @map("created_at")
+  /// Quando o CRM importou o lead.
+  receivedAt          DateTime   @default(now()) @map("received_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  broker       Broker                @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  connection   BrokerMetaConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  notes        PersonalLeadNote[]
+  events       PersonalLeadEvent[]
+
+  @@unique([organizationId, metaLeadId])
+  @@index([organizationId, brokerId, status])
+  @@index([organizationId, brokerId, createdAt])
+  @@index([status, remarketingNotifyAt])
+  @@map("personal_leads")
+}
+
+model PersonalLeadNote {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  personalLeadId String   @map("personal_lead_id")
+  authorUserId   String?  @map("author_user_id")
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         PersonalLead @relation(fields: [personalLeadId], references: [id], onDelete: Cascade)
+  author       User?        @relation("PersonalLeadNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([personalLeadId, createdAt])
+  @@index([organizationId])
+  @@map("personal_lead_notes")
+}
+
+/// Histórico do lead particular. `type`: RECEIVED | STATUS_CHANGED | NOTE_ADDED |
+/// REMINDER_SCHEDULED | REMINDER_SENT.
+model PersonalLeadEvent {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  personalLeadId String   @map("personal_lead_id")
+  userId         String?  @map("user_id")
+  type           String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         PersonalLead @relation(fields: [personalLeadId], references: [id], onDelete: Cascade)
+  user         User?        @relation("PersonalLeadEventUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([personalLeadId, createdAt])
+  @@index([organizationId])
+  @@map("personal_lead_events")
+}
+
+/// Registro das sincronizações que trouxeram leads ou deram erro (as vazias não são gravadas,
+/// para a tabela não crescer a cada minuto).
+model BrokerMetaSyncLog {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  connectionId   String   @map("connection_id")
+  trigger        String   @default("worker")
+  leadsFound     Int      @default(0) @map("leads_found")
+  leadsCreated   Int      @default(0) @map("leads_created")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   BrokerMetaConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, createdAt])
+  @@index([organizationId])
+  @@map("broker_meta_sync_logs")
 }

@@ -382,3 +382,33 @@ export async function sendTestPush(userId: string): Promise<{ sent: number }> {
   await Promise.allSettled(user.pushSubscriptions.map((sub) => sendToSubscription(sub, payload)));
   return { sent: user.pushSubscriptions.length };
 }
+
+/**
+ * Área do Corretor (módulo isolado): aviso de lead particular / lembrete da carteira
+ * particular, só para o corretor dono. Não tem relação com a roleta (sem tag de "vez", sem
+ * audit_log de PUSH_*, então não interfere no alerta de saúde das notificações). Nunca lança
+ * e respeita o horário de silêncio.
+ */
+export async function sendPersonalAreaPush(
+  brokerId: string,
+  message: { title: string; body: string; tag: string }
+): Promise<void> {
+  if (isQuietHours()) {
+    console.info("[push] horário de silêncio — aviso da Área do Corretor não enviado", { brokerId });
+    return;
+  }
+  if (!ensureConfigured()) return;
+
+  try {
+    await sendToBroker(brokerId, {
+      title: message.title,
+      body: message.body,
+      url: "/broker/area-particular",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: message.tag,
+    });
+  } catch (error) {
+    console.error("[push] falha ao enviar aviso da Área do Corretor", { brokerId, error: String(error) });
+  }
+}

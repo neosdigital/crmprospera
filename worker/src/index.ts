@@ -12,6 +12,8 @@ import {
   prisma,
   isPushConfigured,
   runAdAccountMonitor,
+  syncAllBrokerMetaConnections,
+  sendDuePersonalReminders,
 } from "@crm/db";
 import { runHealthcheck } from "./healthcheck";
 
@@ -100,6 +102,29 @@ cron.schedule(healthcheckCronExpression, () => {
 const metaAdsMinutes = Math.max(5, Number(process.env.META_ADS_MONITOR_MINUTES ?? 15));
 cron.schedule(`*/${metaAdsMinutes} * * * *`, () => {
   runAdAccountMonitor().catch((error) => log("meta_ads_monitor_fatal_error", { error: String(error) }));
+});
+
+// Área do Corretor (módulo isolado): busca os leads das Páginas particulares dos corretores e
+// envia os lembretes da carteira particular. Agendamento próprio — não participa do sweep da
+// roleta acima e nunca chama a roleta (ver packages/db/src/personal-leads.ts).
+const personalAreaSeconds = Math.max(30, Number(process.env.PERSONAL_AREA_SYNC_SECONDS ?? 60));
+const personalAreaCron =
+  personalAreaSeconds < 60 ? `*/${personalAreaSeconds} * * * * *` : `*/${Math.round(personalAreaSeconds / 60)} * * * *`;
+let personalAreaRunning = false;
+cron.schedule(personalAreaCron, async () => {
+  if (personalAreaRunning) return; // evita duas passadas sobrepostas se a Meta estiver lenta
+  personalAreaRunning = true;
+  try {
+    const results = await syncAllBrokerMetaConnections();
+    const created = results.reduce((sum, r) => sum + r.created, 0);
+    if (created > 0) log("personal_leads_imported", { count: created });
+    const reminders = await sendDuePersonalReminders(50);
+    if (reminders > 0) log("personal_reminders_sent", { count: reminders });
+  } catch (error) {
+    log("personal_area_fatal_error", { error: String(error) });
+  } finally {
+    personalAreaRunning = false;
+  }
 });
 
 async function shutdown() {
