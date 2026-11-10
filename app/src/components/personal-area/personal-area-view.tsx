@@ -246,16 +246,22 @@ export function PersonalAreaView({ mode, brokerId, brokerName }: { mode: "broker
       <section className="mt-8">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-foreground">Integração Meta</h2>
-          {mode === "broker" && !connecting && (
+          {!connecting && (mode === "broker" || brokerId) && (
             <Button variant="secondary" onClick={() => setConnecting(true)}>
               <Plus size={14} />
-              {activeConnections.length === 0 ? "Conectar minha conta Meta" : "Conectar outra Página / reconectar"}
+              {activeConnections.length === 0
+                ? mode === "admin"
+                  ? "Conectar conta Meta do corretor"
+                  : "Conectar minha conta Meta"
+                : "Conectar outra Página / reconectar"}
             </Button>
           )}
         </div>
         <div className="mt-3 space-y-3">
           {connecting && (
             <PersonalConnectForm
+              brokerId={mode === "admin" ? brokerId : undefined}
+              brokerName={brokerName}
               onConnected={() => {
                 setConnecting(false);
                 refresh();
@@ -270,7 +276,7 @@ export function PersonalAreaView({ mode, brokerId, brokerName }: { mode: "broker
             <Card className="text-sm text-text-secondary">
               {mode === "broker"
                 ? "Nenhuma conta conectada ainda. Clique em “Conectar minha conta Meta” para começar a receber os leads das suas campanhas."
-                : "Este corretor ainda não conectou a conta Meta."}
+                : "Este corretor ainda não tem conta Meta conectada. Você pode conectar por ele em “Conectar conta Meta do corretor” (o acesso à Área do Corretor precisa estar ativado)."}
             </Card>
           )}
         </div>

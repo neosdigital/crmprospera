@@ -55,8 +55,8 @@ export function PersonalAdmin() {
     <div className="px-4 py-8 sm:px-8">
       <h1 className="text-2xl font-semibold text-foreground">Área do Corretor</h1>
       <p className="mt-1 max-w-3xl text-text-secondary">
-        Libere para os corretores que têm conta de anúncios própria. Cada um conecta a própria Página do Facebook e recebe os leads
-        das campanhas particulares numa carteira exclusiva — sem passar pela roleta e sem mudar nada na operação geral.
+        Libere para os corretores que têm conta de anúncios própria. A Página do Facebook de cada um pode ser conectada pelo próprio corretor ou
+        por você, em “Ver carteira”. Os leads das campanhas particulares vão para uma carteira exclusiva do corretor — sem passar pela roleta e sem mudar nada na operação geral.
       </p>
 
       {error && <p className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
@@ -124,7 +124,7 @@ export function PersonalAdmin() {
                   </button>
                   {(b.accessEnabled || b.personalLeads > 0 || b.connections.length > 0) && (
                     <Link href={`/settings/area-do-corretor/${b.id}`}>
-                      <Button variant="secondary">Ver carteira</Button>
+                      <Button variant="secondary">{active.length === 0 && b.accessEnabled ? "Conectar / ver carteira" : "Ver carteira"}</Button>
                     </Link>
                   )}
                 </div>

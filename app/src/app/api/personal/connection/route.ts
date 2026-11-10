@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { connectBrokerMeta, syncBrokerMetaConnection } from "@crm/db";
-import { requirePersonalBroker, publicConnection, personalJsonError } from "@/lib/personal-area";
+import { ApiError } from "@/lib/api";
+import { requirePersonalViewer, resolveBrokerScope, publicConnection, personalJsonError } from "@/lib/personal-area";
 
 const bodySchema = z.object({
   token: z.string().min(10),
@@ -10,20 +11,27 @@ const bodySchema = z.object({
   name: z.string().max(120).optional(),
   adAccountId: z.string().max(60).optional().nullable(),
   adAccountName: z.string().max(120).optional().nullable(),
+  /** Só considerado para dono/admin (conectar em nome de um corretor). Corretor: ignorado. */
+  brokerId: z.string().optional(),
 });
 
 /**
- * Etapa 2: salva a conexão da Página particular do corretor logado. O dono da conexão é
- * SEMPRE o corretor da sessão — o corpo da requisição não tem (nem aceita) brokerId.
+ * Etapa 2: salva a conexão da Página particular.
+ * - Corretor: a conexão é SEMPRE dele (o brokerId do corpo é ignorado).
+ * - Dono/Admin: conecta em nome de um corretor da PRÓPRIA imobiliária, que precisa estar com
+ *   a Área do Corretor liberada. Os leads continuam indo só para esse corretor.
  */
 export async function POST(req: Request) {
   try {
-    const viewer = await requirePersonalBroker();
+    const viewer = await requirePersonalViewer();
     const body = bodySchema.parse(await req.json());
+
+    const brokerId = viewer.isAdmin ? await resolveBrokerScope(viewer, body.brokerId ?? null) : viewer.brokerId;
+    if (!brokerId) throw new ApiError(422, "Escolha o corretor dono desta conexão.");
 
     const connection = await connectBrokerMeta({
       organizationId: viewer.organizationId,
-      brokerId: viewer.brokerId,
+      brokerId,
       userId: viewer.userId,
       token: body.token,
       pageId: body.pageId,

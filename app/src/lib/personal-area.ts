@@ -29,14 +29,6 @@ export async function requirePersonalViewer(): Promise<PersonalViewer> {
   throw new ApiError(403, "Você não tem acesso à Área do Corretor.");
 }
 
-export async function requirePersonalBroker(): Promise<PersonalViewer & { brokerId: string }> {
-  const viewer = await requirePersonalViewer();
-  if (viewer.isAdmin || !viewer.brokerId) {
-    throw new ApiError(403, "A conexão com o Meta é feita pelo próprio corretor, na Área do Corretor dele.");
-  }
-  return viewer as PersonalViewer & { brokerId: string };
-}
-
 export async function requirePersonalAdmin(): Promise<PersonalViewer> {
   const viewer = await requirePersonalViewer();
   if (!viewer.isAdmin) throw new ApiError(403, "Apenas o dono ou administradores podem fazer isso.");

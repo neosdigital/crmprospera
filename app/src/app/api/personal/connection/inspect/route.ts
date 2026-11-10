@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inspectBrokerMetaToken } from "@crm/db";
-import { requirePersonalBroker, personalJsonError } from "@/lib/personal-area";
+import { requirePersonalViewer, personalJsonError } from "@/lib/personal-area";
 
 const bodySchema = z.object({ token: z.string().min(10), pageId: z.string().optional() });
 
 /**
- * Etapa 1 da conexão: mostra as Páginas (e formulários) que o token do corretor enxerga.
- * Não salva nada e nunca devolve tokens. Só o próprio corretor conecta a conta dele.
+ * Etapa 1 da conexão: mostra as Páginas (e formulários) que o token enxerga. Não salva nada
+ * e nunca devolve tokens. Pode ser usada pelo corretor liberado ou pelo dono/admin.
  */
 export async function POST(req: Request) {
   try {
-    await requirePersonalBroker();
+    await requirePersonalViewer();
     const { token, pageId } = bodySchema.parse(await req.json());
     return NextResponse.json(await inspectBrokerMetaToken(token, pageId));
   } catch (error) {

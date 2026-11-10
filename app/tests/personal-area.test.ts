@@ -143,12 +143,53 @@ describe("Área do Corretor — acesso", () => {
     expect(await brokerHasPersonalAreaSafe(brokers[0].id)).toBe(true);
   });
 
-  it("admin não conecta conta em nome do corretor", async () => {
-    const { org } = await createTestOrg({ brokerCount: 1 });
+  it("admin conecta a conta Meta em nome do corretor e os leads vão só para ele", async () => {
+    const { org, brokers } = await createTestOrg({ brokerCount: 2 });
     cleanupIds.push(org.id);
+    const [joao, ana] = brokers;
+    const body = { token: "user_tok_valido", pageId: meta.pageId, formIds: ["form_1"] };
+
+    // Sem dizer o corretor: recusado.
     loginAsOwner(org.id);
-    const res = await connectPOST(req("POST", { token: "user_tok_valido", pageId: meta.pageId, formIds: ["form_1"] }));
-    expect(res.status).toBe(403);
+    expect((await connectPOST(req("POST", body))).status).toBe(422);
+    // Corretor sem a Área do Corretor liberada: recusado.
+    expect((await connectPOST(req("POST", { ...body, brokerId: joao.id }))).status).toBe(403);
+
+    await enable(org.id, joao.id);
+    loginAsOwner(org.id);
+    expect((await inspectPOST(req("POST", { token: "user_tok_valido" }))).status).toBe(200);
+    const res = await connectPOST(req("POST", { ...body, brokerId: joao.id }));
+    expect(res.status).toBe(200);
+    const { connection } = (await res.json()) as { connection: { id: string; brokerId: string } };
+    expect(connection.brokerId).toBe(joao.id);
+    const stored = await prisma.brokerMetaConnection.findUniqueOrThrow({ where: { id: connection.id } });
+    expect(stored.createdByUserId).toBe("owner-test");
+
+    meta.leads = [metaLead("ml_admin", "Maria")];
+    await syncBrokerMetaConnection(connection.id);
+    const leads = await prisma.personalLead.findMany({ where: { organizationId: org.id } });
+    expect(leads.map((l) => l.brokerId)).toEqual([joao.id]);
+    expect(ana.id).not.toBe(joao.id);
+  });
+
+  it("admin não conecta para corretor de outra imobiliária; corretor não conecta em nome de outro", async () => {
+    const { org, brokers } = await createTestOrg({ brokerCount: 2 });
+    cleanupIds.push(org.id);
+    const other = await createTestOrg({ brokerCount: 1 });
+    cleanupIds.push(other.org.id);
+    await enable(other.org.id, other.brokers[0].id);
+    const body = { token: "user_tok_valido", pageId: meta.pageId, formIds: ["form_1"] };
+
+    loginAsOwner(org.id);
+    expect((await connectPOST(req("POST", { ...body, brokerId: other.brokers[0].id }))).status).toBe(404);
+
+    // Corretor mandando o id de outro corretor: a conexão fica com ele mesmo.
+    await enable(org.id, brokers[0].id);
+    await loginAsBroker(org.id, brokers[0].id);
+    const res = await connectPOST(req("POST", { ...body, brokerId: brokers[1].id }));
+    expect(res.status).toBe(200);
+    const { connection } = (await res.json()) as { connection: { brokerId: string } };
+    expect(connection.brokerId).toBe(brokers[0].id);
   });
 });
 

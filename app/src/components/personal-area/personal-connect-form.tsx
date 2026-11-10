@@ -23,7 +23,18 @@ type Inspection = {
  * corretor conecta — é enviado ao servidor, que o valida na Meta e o guarda criptografado.
  * Nunca é devolvido ao navegador.
  */
-export function PersonalConnectForm({ onConnected, onCancel }: { onConnected: () => void; onCancel?: () => void }) {
+export function PersonalConnectForm({
+  onConnected,
+  onCancel,
+  brokerId,
+  brokerName,
+}: {
+  onConnected: () => void;
+  onCancel?: () => void;
+  /** Preenchido quando o dono/admin conecta em nome de um corretor. */
+  brokerId?: string;
+  brokerName?: string;
+}) {
   const [token, setToken] = useState("");
   const [name, setName] = useState("");
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -65,6 +76,7 @@ export function PersonalConnectForm({ onConnected, onCancel }: { onConnected: ()
         name: name || undefined,
         adAccountId: adAccountId || null,
         adAccountName: account?.name ?? (adAccountName || null),
+        brokerId,
       });
       setToken("");
       onConnected();
@@ -80,11 +92,13 @@ export function PersonalConnectForm({ onConnected, onCancel }: { onConnected: ()
       <div>
         <p className="flex items-center gap-2 text-base font-semibold text-foreground">
           <KeyRound size={16} className="text-gold" />
-          Conectar minha conta Meta
+          {brokerId ? `Conectar a conta Meta de ${brokerName ?? "corretor"}` : "Conectar minha conta Meta"}
         </p>
         <p className="mt-1 text-sm text-text-secondary">
-          Cole um token de acesso da sua conta (de Usuário ou da sua Página). O CRM nunca pede a sua senha do
-          Facebook. O token precisa das permissões <span className="text-foreground">pages_show_list</span>,{" "}
+          {brokerId
+            ? "Cole um token de acesso da conta do corretor (de Usuário ou da Página dele). Os leads vão só para a carteira particular dele."
+            : "Cole um token de acesso da sua conta (de Usuário ou da sua Página)."}{" "}
+          O CRM nunca pede senha do Facebook. O token precisa das permissões <span className="text-foreground">pages_show_list</span>,{" "}
           <span className="text-foreground">leads_retrieval</span> e{" "}
           <span className="text-foreground">pages_read_engagement</span> (e{" "}
           <span className="text-foreground">ads_read</span> para listar suas contas de anúncios).
