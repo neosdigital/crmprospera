@@ -99,8 +99,10 @@ export function PersonalConnectForm({
             ? "Cole um token de acesso da conta do corretor (de Usuário ou da Página dele). Os leads vão só para a carteira particular dele."
             : "Cole um token de acesso da sua conta (de Usuário ou da sua Página)."}{" "}
           O CRM nunca pede senha do Facebook. O token precisa das permissões <span className="text-foreground">pages_show_list</span>,{" "}
-          <span className="text-foreground">leads_retrieval</span> e{" "}
-          <span className="text-foreground">pages_read_engagement</span> (e{" "}
+          <span className="text-foreground">leads_retrieval</span>,{" "}
+          <span className="text-foreground">pages_manage_ads</span>,{" "}
+          <span className="text-foreground">pages_read_engagement</span> e{" "}
+          <span className="text-foreground">business_management</span> (e{" "}
           <span className="text-foreground">ads_read</span> para listar suas contas de anúncios).
         </p>
       </div>

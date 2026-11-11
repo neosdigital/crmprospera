@@ -327,6 +327,20 @@ export async function connectBrokerMeta(params: {
   }
   const formNames = new Map<string, string | null>();
   for (const formId of formIds) {
+    // Teste real e obrigatório: conseguir ler os leads deste formulário (leads_retrieval).
+    // Com o token da Página, isso só funciona para formulários da própria Página.
+    try {
+      await graphGet(`/${formId}/leads`, page.pageToken, { fields: "id", limit: "1" });
+    } catch (error) {
+      throw new PersonalAreaError(
+        422,
+        `Não foi possível ler os leads do formulário ${formId}: ${friendlyMetaError(error)} ` +
+          "Confira se o ID é do formulário (não do anúncio), se ele é desta Página e se o token tem leads_retrieval e pages_manage_ads."
+      );
+    }
+    // Nome e Página do formulário: só informativo. Ler o objeto do formulário exige
+    // pages_manage_ads; sem ela, a conexão funciona e o nome fica em branco.
+    let name: string | null = availableForms.find((f) => f.id === formId)?.name ?? null;
     try {
       const form = await graphGet<{ id: string; name?: string; page?: { id: string } }>(`/${formId}`, page.pageToken, {
         fields: "id,name,page",
@@ -334,13 +348,11 @@ export async function connectBrokerMeta(params: {
       if (form.page?.id && form.page.id !== page.id) {
         throw new PersonalAreaError(422, `O formulário ${formId} não pertence à Página selecionada.`);
       }
-      // Teste real da permissão de leitura de leads (leads_retrieval) neste formulário.
-      await graphGet(`/${formId}/leads`, page.pageToken, { fields: "id", limit: "1" });
-      formNames.set(formId, form.name ?? availableForms.find((f) => f.id === formId)?.name ?? null);
+      name = form.name ?? name;
     } catch (error) {
       if (error instanceof PersonalAreaError) throw error;
-      throw new PersonalAreaError(422, `Não foi possível ler os leads do formulário ${formId}: ${friendlyMetaError(error)}`);
     }
+    formNames.set(formId, name);
   }
 
   const now = new Date();

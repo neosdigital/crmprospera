@@ -35,6 +35,8 @@ const meta = {
   leads: [] as FakeLead[],
   deadTokens: new Set<string>(),
   pageId: "",
+  /** Simula token sem pages_manage_ads: ler o objeto do formulário é recusado. */
+  formObjectDenied: false,
 };
 
 function json(body: unknown, status = 200) {
@@ -58,6 +60,9 @@ async function fakeGraph(input: string | URL | Request) {
   if (path === "/me/adaccounts") return json({ data: [{ account_id: "act_99", name: "Conta particular do João" }] });
   if (token !== pageToken) return json({ error: { message: "Invalid OAuth access token", code: 190 } }, 400);
   if (path === `/${meta.pageId}/leadgen_forms`) return json({ data: [{ id: "form_1", name: "Apartamentos em Itajaí", status: "ACTIVE" }] });
+  if (path === "/form_1" && meta.formObjectDenied) {
+    return json({ error: { message: "(#200) Requires pages_manage_ads permission to manage the object", code: 200 } }, 400);
+  }
   if (path === "/form_1") return json({ id: "form_1", name: "Apartamentos em Itajaí", page: { id: meta.pageId } });
   if (path === "/form_1/leads") return json({ data: meta.leads });
   return json({ error: { message: `rota falsa não mapeada: ${path}`, code: 100 } }, 400);
@@ -85,6 +90,7 @@ beforeEach(() => {
   meta.leads = [];
   meta.deadTokens = new Set();
   meta.pageId = `page_joao_${Date.now()}_${seq}`;
+  meta.formObjectDenied = false;
   __setGraphFetchForTests(fakeGraph as typeof fetch);
 });
 afterEach(async () => {
@@ -220,6 +226,20 @@ describe("Área do Corretor — conexão com a Meta", () => {
 
     const overview = await overviewGET(req("GET", undefined, "http://localhost/api/personal/overview"));
     expect(await overview.text()).not.toMatch(/page_tok_|accessToken/);
+  });
+
+  it("conecta mesmo sem pages_manage_ads, desde que consiga ler os leads do formulário", async () => {
+    const { org, brokers } = await createTestOrg({ brokerCount: 1 });
+    cleanupIds.push(org.id);
+    meta.formObjectDenied = true;
+    await enable(org.id, brokers[0].id);
+    await loginAsBroker(org.id, brokers[0].id);
+    const ok = await connectPOST(req("POST", { token: "user_tok_valido", pageId: meta.pageId, formIds: ["form_1"] }));
+    expect(ok.status).toBe(200);
+    // ID que não é um formulário legível por esta Página: recusado com explicação.
+    const bad = await connectPOST(req("POST", { token: "user_tok_valido", pageId: meta.pageId, formIds: ["form_inexistente"] }));
+    expect(bad.status).toBe(422);
+    expect(((await bad.json()) as { error: string }).error).toContain("ID é do formulário");
   });
 
   it("recusa Página que já é da integração geral da imobiliária", async () => {
