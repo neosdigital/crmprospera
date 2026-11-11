@@ -64,7 +64,19 @@ async function fakeGraph(input: string | URL | Request) {
     return json({ error: { message: "(#200) Requires pages_manage_ads permission to manage the object", code: 200 } }, 400);
   }
   if (path === "/form_1") return json({ id: "form_1", name: "Apartamentos em Itajaí", page: { id: meta.pageId } });
-  if (path === "/form_1/leads") return json({ data: meta.leads });
+  if (path === "/form_1/leads") {
+    // Mesmo formato exigido pela Meta: filtering = [{ field, operator, value }].
+    const filtering = url.searchParams.get("filtering");
+    if (filtering) {
+      for (const [i, f] of (JSON.parse(filtering) as Record<string, unknown>[]).entries()) {
+        const invalid = Object.keys(f).filter((k) => !["field", "operator", "value"].includes(k));
+        if (invalid.length || !f.operator) {
+          return json({ error: { message: `(#100) Invalid keys "${invalid.join(",")}" were found in param "filtering[${i}]".`, code: 100 } }, 400);
+        }
+      }
+    }
+    return json({ data: meta.leads });
+  }
   return json({ error: { message: `rota falsa não mapeada: ${path}`, code: 100 } }, 400);
 }
 

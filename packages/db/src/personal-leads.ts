@@ -537,7 +537,7 @@ export async function syncBrokerMetaConnection(connectionId: string, trigger: "w
     for (const form of connection.forms) {
       const since = new Date((form.syncCursor ?? connection.createdAt).getTime() - SYNC_OVERLAP_MS);
       const filtering = JSON.stringify([
-        { field: "time_created", operation: "GREATER_THAN", value: Math.floor(since.getTime() / 1000) },
+        { field: "time_created", operator: "GREATER_THAN", value: Math.floor(since.getTime() / 1000) },
       ]);
       let url: URL | null = new URL(`${GRAPH_BASE}/${form.formId}/leads`);
       url.searchParams.set("fields", LEAD_FIELDS);
